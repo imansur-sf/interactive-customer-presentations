@@ -1,0 +1,23 @@
+name = "icp-decktools-llm"
+main = "worker.js"
+compatibility_date = "2026-01-15"
+
+# Bundle skill-context markdown + reference HTML as text modules so we can
+# import them directly in worker.js. These become the LLM system prompt.
+[[rules]]
+type = "Text"
+globs = ["**/*.md", "**/*.html"]
+fallthrough = true
+
+# Required env vars (set as Wrangler secrets):
+#   wrangler secret put ANTHROPIC_API_KEY      # server-held Anthropic key (fallback for no-BYOK users)
+#   wrangler secret put LLM_GATEWAY_URL        # optional: SF LLM Gateway base URL (for BYOK sk-... keys)
+#   wrangler secret put LLM_GATEWAY_KEY        # optional: server-held LLM Gateway key
+#   wrangler secret put ALLOWED_ORIGINS        # optional: comma-separated origins; defaults to *
+
+# Uncomment to bind a custom route once ready:
+# [[routes]]
+# pattern = "icp.imansur.workers.dev/*"
+
+[observability]
+enabled = true

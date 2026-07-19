@@ -1,0 +1,11 @@
+# Copy to .dev.vars and fill in for local `wrangler dev`. Never commit .dev.vars.
+
+# Simplest path: use an Anthropic API key
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Or point at the SF LLM Gateway
+# LLM_GATEWAY_URL=https://your-llm-gateway/api
+# LLM_GATEWAY_KEY=sk-...
+
+# Optional CORS allowlist (comma-separated)
+# ALLOWED_ORIGINS=http://localhost:3000,https://imansur-sf.github.io
