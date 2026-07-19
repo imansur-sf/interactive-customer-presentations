@@ -100,6 +100,43 @@ export default {
       }
     }
 
+    if (url.pathname === '/debug/reach' && request.method === 'GET') {
+      // Diagnose whether the Worker can reach the LLM Gateway from Cloudflare's
+      // public network. Reports DNS/TCP/TLS/HTTP outcome without ever printing
+      // the key. Useful to distinguish "unreachable" from "auth failed".
+      const target = env.LLM_GATEWAY_URL || '';
+      if (!target) return json({ error: 'LLM_GATEWAY_URL not set' }, { status: 400, request, env });
+      const probes = [
+        { name: 'GET base',           method: 'GET',  path: '' },
+        { name: 'GET /chat/completions', method: 'GET',  path: '/chat/completions' },
+      ];
+      const results = [];
+      for (const p of probes) {
+        const t0 = Date.now();
+        try {
+          const r = await fetch(target.replace(/\/+$/, '') + p.path, {
+            method: p.method,
+            headers: { 'Authorization': `Bearer ${env.LLM_GATEWAY_KEY || 'unset'}` },
+            signal: AbortSignal.timeout(10000),
+          });
+          const bodyPreview = (await r.text()).slice(0, 200);
+          results.push({
+            probe: p.name,
+            elapsedMs: Date.now() - t0,
+            status: r.status,
+            bodyPreview,
+          });
+        } catch (err) {
+          results.push({
+            probe: p.name,
+            elapsedMs: Date.now() - t0,
+            error: `${err.name}: ${err.message}`,
+          });
+        }
+      }
+      return json({ target, results }, { request, env });
+    }
+
     if (url.pathname === '/decktools/track' && request.method === 'POST') {
       // Fire-and-forget pass-through to the existing decktools tracker.
       try {
