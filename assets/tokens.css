@@ -11,80 +11,80 @@
   font-weight: 100;
   font-style: normal;
   font-display: swap;
-  src: url('assets/fonts/SalesforceSans-Thin.woff2') format('woff2'),
-       url('assets/fonts/SalesforceSans-Thin.woff') format('woff');
+  src: url('fonts/SalesforceSans-Thin.woff2') format('woff2'),
+       url('fonts/SalesforceSans-Thin.woff') format('woff');
 }
 @font-face {
   font-family: 'Salesforce Sans';
   font-weight: 100;
   font-style: italic;
   font-display: swap;
-  src: url('assets/fonts/SalesforceSans-ThinItalic.woff2') format('woff2'),
-       url('assets/fonts/SalesforceSans-ThinItalic.woff') format('woff');
+  src: url('fonts/SalesforceSans-ThinItalic.woff2') format('woff2'),
+       url('fonts/SalesforceSans-ThinItalic.woff') format('woff');
 }
 @font-face {
   font-family: 'Salesforce Sans';
   font-weight: 300;
   font-style: normal;
   font-display: swap;
-  src: url('assets/fonts/SalesforceSans-Light.woff2') format('woff2'),
-       url('assets/fonts/SalesforceSans-Light.woff') format('woff');
+  src: url('fonts/SalesforceSans-Light.woff2') format('woff2'),
+       url('fonts/SalesforceSans-Light.woff') format('woff');
 }
 @font-face {
   font-family: 'Salesforce Sans';
   font-weight: 300;
   font-style: italic;
   font-display: swap;
-  src: url('assets/fonts/SalesforceSans-LightItalic.woff2') format('woff2'),
-       url('assets/fonts/SalesforceSans-LightItalic.woff') format('woff');
+  src: url('fonts/SalesforceSans-LightItalic.woff2') format('woff2'),
+       url('fonts/SalesforceSans-LightItalic.woff') format('woff');
 }
 @font-face {
   font-family: 'Salesforce Sans';
   font-weight: 350;
   font-style: normal;
   font-display: swap;
-  src: url('assets/fonts/SalesforceSans-Book.woff2') format('woff2'),
-       url('assets/fonts/SalesforceSans-Book.woff') format('woff');
+  src: url('fonts/SalesforceSans-Book.woff2') format('woff2'),
+       url('fonts/SalesforceSans-Book.woff') format('woff');
 }
 @font-face {
   font-family: 'Salesforce Sans';
   font-weight: 400;
   font-style: normal;
   font-display: swap;
-  src: url('assets/fonts/SalesforceSans-Regular.woff2') format('woff2'),
-       url('assets/fonts/SalesforceSans-Regular.woff') format('woff');
+  src: url('fonts/SalesforceSans-Regular.woff2') format('woff2'),
+       url('fonts/SalesforceSans-Regular.woff') format('woff');
 }
 @font-face {
   font-family: 'Salesforce Sans';
   font-weight: 400;
   font-style: italic;
   font-display: swap;
-  src: url('assets/fonts/SalesforceSans-Italic.woff2') format('woff2'),
-       url('assets/fonts/SalesforceSans-Italic.woff') format('woff');
+  src: url('fonts/SalesforceSans-Italic.woff2') format('woff2'),
+       url('fonts/SalesforceSans-Italic.woff') format('woff');
 }
 @font-face {
   font-family: 'Salesforce Sans';
   font-weight: 600;
   font-style: normal;
   font-display: swap;
-  src: url('assets/fonts/SalesforceSans-Semibold.woff2') format('woff2'),
-       url('assets/fonts/SalesforceSans-Semibold.woff') format('woff');
+  src: url('fonts/SalesforceSans-Semibold.woff2') format('woff2'),
+       url('fonts/SalesforceSans-Semibold.woff') format('woff');
 }
 @font-face {
   font-family: 'Salesforce Sans';
   font-weight: 700;
   font-style: normal;
   font-display: swap;
-  src: url('assets/fonts/SalesforceSans-Bold.woff2') format('woff2'),
-       url('assets/fonts/SalesforceSans-Bold.woff') format('woff');
+  src: url('fonts/SalesforceSans-Bold.woff2') format('woff2'),
+       url('fonts/SalesforceSans-Bold.woff') format('woff');
 }
 @font-face {
   font-family: 'Salesforce Sans';
   font-weight: 700;
   font-style: italic;
   font-display: swap;
-  src: url('assets/fonts/SalesforceSans-BoldItalic.woff2') format('woff2'),
-       url('assets/fonts/SalesforceSans-BoldItalic.woff') format('woff');
+  src: url('fonts/SalesforceSans-BoldItalic.woff2') format('woff2'),
+       url('fonts/SalesforceSans-BoldItalic.woff') format('woff');
 }
 
 /* ── Avant Garde For Salesforce ─────────────────────────────── */
@@ -93,9 +93,9 @@
   font-weight: 600;
   font-style: normal;
   font-display: swap;
-  src: url('assets/fonts/AvantGardeForSalesforceW05-Dm.woff2') format('woff2'),
-       url('assets/fonts/AvantGardeForSalesforceW05-Dm.woff') format('woff'),
-       url('assets/fonts/AvantGardeForSalesforce-Demi.ttf') format('truetype');
+  src: url('fonts/AvantGardeForSalesforceW05-Dm.woff2') format('woff2'),
+       url('fonts/AvantGardeForSalesforceW05-Dm.woff') format('woff'),
+       url('fonts/AvantGardeForSalesforce-Demi.ttf') format('truetype');
 }
 
 /* ── Trailhead ───────────────────────────────────────────────── */
@@ -104,14 +104,14 @@
   font-weight: 500;
   font-style: normal;
   font-display: swap;
-  src: url('assets/fonts/TrailheadMedium.otf') format('opentype');
+  src: url('fonts/TrailheadMedium.otf') format('opentype');
 }
 @font-face {
   font-family: 'Trailhead';
   font-weight: 700;
   font-style: normal;
   font-display: swap;
-  src: url('assets/fonts/TrailheadBold.otf') format('opentype');
+  src: url('fonts/TrailheadBold.otf') format('opentype');
 }
 
 :root {

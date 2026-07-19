@@ -425,6 +425,141 @@
       color: #fff;
     }
     .modal .actions .save:hover { background: var(--sf-blue-m, #066AFE); }
+
+    /* -------- Interview widgets (inside chat log) -------- */
+    .q-prompt {
+      font-weight: 500;
+      color: #fff;
+      margin-bottom: 4px;
+    }
+    .q-help {
+      font-size: 12px;
+      color: rgba(255,255,255,0.55);
+      margin-top: 6px;
+      line-height: 1.5;
+    }
+    .q-widget {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 14px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.09);
+      border-radius: 12px;
+    }
+    .q-field-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: rgba(255,255,255,0.55);
+      margin-bottom: 6px;
+    }
+    .q-input, .q-textarea {
+      width: 100%;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: #fff;
+      font-family: inherit;
+      font-size: 13px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      outline: none;
+    }
+    .q-input:focus, .q-textarea:focus {
+      border-color: var(--sf-blue-l, #00B3FF);
+    }
+    .q-textarea { resize: vertical; min-height: 60px; }
+    .q-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .q-chip {
+      background: rgba(255,255,255,0.06);
+      color: rgba(255,255,255,0.85);
+      border: 1px solid rgba(255,255,255,0.14);
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .q-chip:hover { background: rgba(255,255,255,0.12); }
+    .q-chip.selected {
+      background: var(--sf-blue, #022AC0);
+      border-color: var(--sf-blue, #022AC0);
+      color: #fff;
+    }
+    .q-submit {
+      background: var(--sf-blue, #022AC0);
+      color: #fff;
+      border: none;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      align-self: flex-end;
+    }
+    .q-submit:hover:not(:disabled) { background: var(--sf-blue-m, #066AFE); }
+    .q-submit:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    .q-kpi-grid, .q-beachheads {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .q-kpi-row {
+      display: grid;
+      grid-template-columns: 62px 70px 56px 1fr;
+      gap: 6px;
+      align-items: center;
+    }
+    .q-kpi-tag {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: rgba(0, 179, 255, 0.85);
+      background: rgba(0, 179, 255, 0.08);
+      border: 1px solid rgba(0, 179, 255, 0.25);
+      padding: 4px 6px;
+      border-radius: 4px;
+      text-align: center;
+    }
+    .q-bh-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      padding: 10px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px;
+    }
+    .q-bh-header {
+      grid-column: 1 / -1;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: rgba(255,255,255,0.55);
+    }
+    .q-bh-row textarea {
+      grid-column: 1 / -1;
+    }
+
+    /* -------- Loading spinner (worker calls) -------- */
+    .spinner {
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,0.25);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      display: inline-block;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 

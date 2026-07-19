@@ -1,12 +1,23 @@
 // Interactive Customer Presentations — app shell.
 //
-// v1 skeleton behavior:
-//   - Fetch sf-composer.html, rewrite its relative asset paths so they resolve
-//     from the app root, and mount it in the preview iframe via srcdoc.
-//   - Enumerate its 12 slides and render the right-hand nav.
-//   - Wire click-a-slide → scroll iframe + set chat scope.
-//   - Persist settings (worker URL, BYOK key) in localStorage.
-//   - Chat input is stubbed for now — LLM wiring lands in a later step.
+// Boot flow:
+//   1. Load sf-composer.html into an in-memory deckDoc (source of truth).
+//   2. Mount deckDoc in the preview iframe via srcdoc.
+//   3. Enumerate slides + render the right-hand nav.
+//   4. Wait for user to click "Start interview" (or click a slide to enter edit mode).
+//
+// Interview → Deck generation:
+//   InterviewController walks Q1–Q16 with rich widgets. On completion, we send
+//   the full deckContext to /decktools/llm with turn:'generate' and apply the
+//   returned patches to deckDoc — one big rewrite of the reference deck into
+//   the customer's deck.
+//
+// Slide-edit mode:
+//   When a slide is scoped and the user types a message, we send turn:'edit'
+//   with the current slide's HTML and apply the returned patches.
+
+import { InterviewController } from './interview.js';
+import { callWorker, applyPatches, getWorkerUrl } from './llm.js';
 
 const LS = {
   workerUrl: 'icp.workerUrl',
@@ -14,29 +25,23 @@ const LS = {
   sessionId: 'icp.sessionId',
 };
 
-// Human-friendly labels for slides. Slide 1 and 12 have empty data-section
-// in the reference deck, so we override them here. Everything else uses
-// the section string verbatim.
-const SLIDE_LABEL_OVERRIDES = {
-  0: 'Hero',
-  11: 'Attribution',
-};
+const SLIDE_LABEL_OVERRIDES = { 0: 'Hero', 11: 'Attribution' };
 
-// -------- State --------
 const state = {
-  deckDoc: null,       // parsed DOM of the current deck (source of truth)
-  slides: [],          // [{ id, label, dataSection }]
+  deckDoc: null,
+  slides: [],
   activeSlideIdx: null,
-  scope: null,         // slide index when user is editing a specific slide
+  scope: null,
+  interview: null,
+  answers: null,   // populated after interview completes
+  busy: false,
 };
 
-// -------- Boot --------
 document.addEventListener('DOMContentLoaded', async () => {
   ensureSessionId();
   wireTopbar();
   wireChat();
   wireNavFooter();
-
   try {
     await loadReferenceDeck();
   } catch (err) {
@@ -52,15 +57,12 @@ function ensureSessionId() {
   }
 }
 
-// -------- Reference deck load --------
+// ------------------------------------------------------------------ Deck load
 async function loadReferenceDeck() {
   const res = await fetch('skill-context/sf-composer.html');
   if (!res.ok) throw new Error(`fetch composer: ${res.status}`);
   const raw = await res.text();
 
-  // Rewrite composer's relative asset paths to point at the app root.
-  // The composer expects tokens.css/components.css/animation.*/assets/ as
-  // siblings; in our layout they're all under assets/.
   const rewritten = raw
     .replace(/(href|src)="tokens\.css"/g,                  '$1="assets/tokens.css"')
     .replace(/(href|src)="components\.css"/g,              '$1="assets/components.css"')
@@ -68,19 +70,15 @@ async function loadReferenceDeck() {
     .replace(/(href|src)="animation-interactions\.css"/g,  '$1="assets/animation-interactions.css"')
     .replace(/(href|src)="animation\.js"/g,                '$1="assets/animation.js"');
 
-  // Parse into an in-memory Document — this is our source of truth going forward.
   const parser = new DOMParser();
   const doc = parser.parseFromString(rewritten, 'text/html');
 
-  // Inject <base> so any remaining relative URLs (e.g. Google Font @import) resolve
-  // against the app's origin, not the iframe's about:srcdoc pseudo-URL.
   const baseHref = new URL('.', window.location.href).href;
   const baseTag = doc.createElement('base');
   baseTag.setAttribute('href', baseHref);
   doc.head.prepend(baseTag);
 
   state.deckDoc = doc;
-
   enumerateSlides();
   renderNav();
   mountPreview();
@@ -91,7 +89,6 @@ function enumerateSlides() {
   state.slides = Array.from(slideNodes).map((el, i) => {
     const dataSection = el.getAttribute('data-section') || '';
     const label = SLIDE_LABEL_OVERRIDES[i] || dataSection || `Slide ${i + 1}`;
-    // Give every slide a stable id so we can locate + patch it later.
     if (!el.id) el.id = `slide-${i}`;
     return { id: el.id, label, dataSection, idx: i };
   });
@@ -116,32 +113,42 @@ function renderNav() {
 function mountPreview() {
   const iframe = document.getElementById('preview-iframe');
   const empty = document.getElementById('preview-empty');
-
-  // Serialize the current deckDoc into the iframe via srcdoc — same-origin,
-  // fully accessible from the parent for future DOM patching.
   const html = '<!DOCTYPE html>\n' + state.deckDoc.documentElement.outerHTML;
   iframe.srcdoc = html;
   iframe.style.display = 'block';
   empty.style.display = 'none';
 }
 
-// -------- Slide selection / scope --------
+// Called after applyPatches: re-render the iframe to reflect deckDoc changes.
+// Preserves the current active slide index if possible.
+function rerenderPreview() {
+  const iframe = document.getElementById('preview-iframe');
+  const html = '<!DOCTYPE html>\n' + state.deckDoc.documentElement.outerHTML;
+
+  // We restore the active slide once the iframe reloads.
+  const restoreIdx = state.activeSlideIdx;
+  iframe.addEventListener('load', function once() {
+    iframe.removeEventListener('load', once);
+    if (restoreIdx != null) {
+      const inner = iframe.contentDocument;
+      const dot = inner?.querySelectorAll('#dots .dot')[restoreIdx];
+      if (dot) dot.click();
+    }
+  });
+  iframe.srcdoc = html;
+}
+
+// ------------------------------------------------------------------ Slide select / scope
 function selectSlide(idx) {
   const slide = state.slides[idx];
   if (!slide) return;
-
   state.activeSlideIdx = idx;
   state.scope = idx;
 
-  // Nav highlight
   document.querySelectorAll('.nav-item').forEach((el) => {
     el.classList.toggle('active', Number(el.dataset.slideIdx) === idx);
   });
 
-  // The reference deck is a single-slide-visible carousel with its own `go(n)`
-  // function scoped inside the composer's script. We trigger navigation by
-  // clicking the corresponding dot — every dot is wired to `go(i)`, so this
-  // reuses the composer's own state transitions instead of forking them.
   const iframe = document.getElementById('preview-iframe');
   const inner = iframe.contentDocument;
   if (inner) {
@@ -149,12 +156,11 @@ function selectSlide(idx) {
     if (dot) dot.click();
   }
 
-  // Show scope chip + enable chat input so the user can immediately request a
-  // scoped edit on this slide.
   document.getElementById('scope-chip-label').textContent = slide.label;
   document.getElementById('scope-chip').classList.add('visible');
   document.getElementById('chat-textarea').disabled = false;
   document.getElementById('btn-send').disabled = false;
+  document.getElementById('chat-textarea').placeholder = `Refine the "${slide.label}" slide…`;
 }
 
 function clearScope() {
@@ -162,9 +168,135 @@ function clearScope() {
   state.activeSlideIdx = null;
   document.querySelectorAll('.nav-item').forEach((el) => el.classList.remove('active'));
   document.getElementById('scope-chip').classList.remove('visible');
+  document.getElementById('chat-textarea').placeholder = 'Type a message… (⏎ to send)';
 }
 
-// -------- Chat (skeleton — LLM wiring comes next) --------
+// ------------------------------------------------------------------ Interview
+function startInterview() {
+  if (!getWorkerUrl()) {
+    appendMessage(
+      'assistant',
+      "Before we start, open Settings (top-right) and paste your deployed Cloudflare Worker URL. Then click Start interview again."
+    );
+    return;
+  }
+  clearScope();
+  const log = document.getElementById('chat-log');
+  // Reset log to a fresh start message
+  log.innerHTML = '';
+  appendMessage('assistant', "Great — let's build your deck. I'll ask 16 questions covering customer, deck type, Bowden goal, the Gap, hero KPIs, stack, beachheads, proof, roadmap, closing, accent color, and animations. Answer each one below.");
+
+  state.interview = new InterviewController({
+    container: log,
+    appendMessage,
+    onComplete: async (answers) => {
+      state.answers = answers;
+      await generateDeck(answers);
+    },
+  });
+  state.interview.start();
+
+  // Fire tracker ping — fire-and-forget, no blocking, no reporting.
+  fireTrackerEvent({ event: 'interview_start' });
+}
+
+async function generateDeck(answers) {
+  setBusy(true, 'Generating deck…');
+  try {
+    const resp = await callWorker({
+      turn: 'generate',
+      userMessage: 'Generate the complete deck from the interview answers below.',
+      deckContext: {
+        answers,
+        // Send the current (blank/reference) deck slide ids so the model knows
+        // the target slot structure it's patching against.
+        slides: state.slides.map((s) => ({ idx: s.idx, label: s.label, section: s.dataSection })),
+      },
+      model: 'opus',
+    });
+
+    const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
+    rerenderPreview();
+
+    let note = resp.message || `Deck generated. ${applied.length} patches applied.`;
+    if (skipped.length) note += ` (${skipped.length} skipped — will note in console.)`;
+    appendMessage('assistant', note);
+    if (skipped.length) console.warn('skipped patches', skipped);
+
+    fireTrackerEvent({
+      event: 'deck_new',
+      customer: answers.customer,
+      industry: answers.industry,
+      deck_type: answers.deck_type,
+      audience_type: answers.audience_type,
+      products: answers.stack_sf || [],
+      accent: answers.accent_hex,
+    });
+
+    appendMessage('assistant', 'Click any slide on the right to refine it — I can rewrite copy, swap the accent, tighten the hero, whatever you need.');
+  } catch (err) {
+    console.error(err);
+    appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
+  } finally {
+    setBusy(false);
+  }
+}
+
+// ------------------------------------------------------------------ Slide edit
+async function sendScopedEdit(text) {
+  if (state.scope == null) return;
+  const slide = state.slides[state.scope];
+  const inner = document.getElementById('preview-iframe').contentDocument;
+  const currentSlideEl = inner?.getElementById(slide.id);
+  const currentHtml = currentSlideEl ? currentSlideEl.outerHTML : '';
+
+  appendMessage('user', text);
+  setBusy(true, `Refining ${slide.label}…`);
+  try {
+    const resp = await callWorker({
+      turn: 'edit',
+      slideId: kebabForSlide(slide),
+      userMessage: text,
+      deckContext: {
+        answers: state.answers || {},
+        currentSlideHtml: currentHtml,
+        slideLabel: slide.label,
+      },
+      model: 'sonnet', // cheaper for scoped edits
+    });
+
+    const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
+    rerenderPreview();
+    appendMessage('assistant', resp.message || `Applied ${applied.length} change${applied.length === 1 ? '' : 's'}.`);
+    if (skipped.length) console.warn('skipped patches', skipped);
+  } catch (err) {
+    console.error(err);
+    appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
+  } finally {
+    setBusy(false);
+  }
+}
+
+// Map slide label → the kebab-case id the LLM/prompts use.
+function kebabForSlide(slide) {
+  const map = {
+    'Hero': 'hero',
+    'Why Now': 'why-now',
+    'The Gap': 'gap',
+    'How It Works': 'stack',
+    'AI in Action': 'ai-in-action',
+    'Real-Time Data': 'real-time',
+    'Start Here': 'beachheads',
+    'Where This Goes': 'scale',
+    'What It Does Today': 'proof',
+    'The Path Forward': 'roadmap',
+    'Next Steps': 'closing',
+    'Attribution': 'attribution',
+  };
+  return map[slide.label] || slide.label.toLowerCase().replace(/\s+/g, '-');
+}
+
+// ------------------------------------------------------------------ Chat wiring
 function wireChat() {
   const ta = document.getElementById('chat-textarea');
   const btn = document.getElementById('btn-send');
@@ -173,14 +305,12 @@ function wireChat() {
     ta.style.height = 'auto';
     ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
   });
-
   ta.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (!btn.disabled) sendMessage();
     }
   });
-
   btn.addEventListener('click', sendMessage);
 
   document.getElementById('scope-chip-clear').addEventListener('click', clearScope);
@@ -190,19 +320,18 @@ function sendMessage() {
   const ta = document.getElementById('chat-textarea');
   const text = ta.value.trim();
   if (!text) return;
-  appendMessage('user', text);
   ta.value = '';
   ta.style.height = 'auto';
 
-  // Placeholder — LLM wiring lands in the next step.
-  setTimeout(() => {
-    appendMessage(
-      'assistant',
-      'Chat wiring lands in the next milestone — this pane will send your message to the Cloudflare Worker and apply the returned patches to the preview.'
-    );
-  }, 250);
+  if (state.scope != null) {
+    sendScopedEdit(text);
+  } else {
+    appendMessage('user', text);
+    appendMessage('assistant', 'Click a slide on the right first, then I can apply the edit there. Or click Start interview to build a deck from scratch.');
+  }
 }
 
+// ------------------------------------------------------------------ Chat log helpers
 function appendMessage(role, text) {
   const log = document.getElementById('chat-log');
   const div = document.createElement('div');
@@ -213,34 +342,43 @@ function appendMessage(role, text) {
   log.scrollTop = log.scrollHeight;
 }
 
-// -------- Nav footer (Start interview / Reset) --------
-function wireNavFooter() {
-  document.getElementById('btn-start-interview').addEventListener('click', () => {
-    // Enable chat input; kick off with a starter message.
-    const ta = document.getElementById('chat-textarea');
-    const btn = document.getElementById('btn-send');
-    ta.disabled = false;
-    btn.disabled = false;
-    ta.focus();
-    appendMessage(
-      'assistant',
-      "Great — let's start. Once the LLM wiring lands, I'll ask 14 questions covering customer, deck type, Bowden goal, hero KPIs, stack, beachheads, animations, and closing CTAs. Each answer updates the preview live."
-    );
-  });
+function setBusy(busy, label) {
+  state.busy = busy;
+  const btn = document.getElementById('btn-send');
+  const ta = document.getElementById('chat-textarea');
+  btn.disabled = busy;
+  ta.disabled = busy;
+  if (busy) {
+    const log = document.getElementById('chat-log');
+    const div = document.createElement('div');
+    div.id = 'busy-msg';
+    div.className = 'msg assistant';
+    div.innerHTML = `<div class="msg-label">Decktools</div><span class="spinner"></span>${escapeHtml(label || 'Working…')}`;
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+  } else {
+    document.getElementById('busy-msg')?.remove();
+    // Re-enable input state (respect scope)
+    if (state.scope != null) {
+      ta.disabled = false; btn.disabled = false;
+    }
+  }
+}
 
+// ------------------------------------------------------------------ Nav footer
+function wireNavFooter() {
+  document.getElementById('btn-start-interview').addEventListener('click', startInterview);
   document.getElementById('btn-reset').addEventListener('click', async () => {
     if (!confirm('Reset the deck back to the blank reference?')) return;
     await loadReferenceDeck();
+    state.answers = null;
     clearScope();
     document.getElementById('chat-log').innerHTML = '';
-    appendMessage(
-      'assistant',
-      'Deck reset to the blank reference. Click Start interview to begin building it out.'
-    );
+    appendMessage('assistant', 'Deck reset to the blank reference. Click Start interview to begin building it out.');
   });
 }
 
-// -------- Top bar (Settings + Export) --------
+// ------------------------------------------------------------------ Topbar
 function wireTopbar() {
   const modal = document.getElementById('settings-modal');
   const workerInput = document.getElementById('setting-worker-url');
@@ -251,11 +389,7 @@ function wireTopbar() {
     keyInput.value = localStorage.getItem(LS.apiKey) || '';
     modal.classList.add('visible');
   });
-
-  document.getElementById('settings-cancel').addEventListener('click', () => {
-    modal.classList.remove('visible');
-  });
-
+  document.getElementById('settings-cancel').addEventListener('click', () => modal.classList.remove('visible'));
   document.getElementById('settings-save').addEventListener('click', () => {
     const url = workerInput.value.trim();
     const key = keyInput.value.trim();
@@ -263,33 +397,47 @@ function wireTopbar() {
     if (key) localStorage.setItem(LS.apiKey, key); else localStorage.removeItem(LS.apiKey);
     modal.classList.remove('visible');
   });
-
-  modal.addEventListener('click', (e) => {
-    if (e.target === modal) modal.classList.remove('visible');
-  });
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('visible'); });
 
   document.getElementById('btn-export').addEventListener('click', () => {
-    // Basic export — serialize current deckDoc and hand back as a download.
-    // The proper self-contained inliner (fonts as base64, etc.) lands in task 7.
     if (!state.deckDoc) return;
     const html = '<!DOCTYPE html>\n' + state.deckDoc.documentElement.outerHTML;
     const blob = new Blob([html], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'deck.html';
+    const customer = state.answers?.customer;
+    a.download = customer ? `deck-${slugify(customer)}.html` : 'deck.html';
     a.click();
     URL.revokeObjectURL(url);
   });
 }
 
-// -------- Helpers --------
+// ------------------------------------------------------------------ Tracker
+function fireTrackerEvent(payload) {
+  const workerUrl = getWorkerUrlSafe();
+  if (!workerUrl) return;
+  const url = workerUrl.replace(/\/+$/, '') + '/decktools/track';
+  fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      ...payload,
+      user: 'portal:' + (localStorage.getItem(LS.sessionId) || 'anon'),
+      ts: new Date().toISOString(),
+    }),
+    keepalive: true,
+  }).catch(() => {});
+}
+function getWorkerUrlSafe() { return (localStorage.getItem(LS.workerUrl) || '').trim(); }
+
+// ------------------------------------------------------------------ Utils
 function escapeHtml(s) {
   return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 function escapeAttr(s) { return escapeHtml(s); }
+function slugify(s) {
+  return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+}
