@@ -17,7 +17,7 @@
 //   with the current slide's HTML and apply the returned patches.
 
 import { InterviewController } from './interview.js';
-import { callWorker, applyPatches, getWorkerUrl, suggestAnswer } from './llm.js';
+import { callLLM, applyPatches, getWorkerUrl, suggestAnswer, detectRoute } from './llm.js';
 
 const LS = {
   workerUrl: 'icp.workerUrl',
@@ -203,7 +203,7 @@ function startInterview() {
 async function generateDeck(answers) {
   setBusy(true, 'Generating deck…');
   try {
-    const resp = await callWorker({
+    const resp = await callLLM({
       turn: 'generate',
       userMessage: 'Generate the complete deck from the interview answers below.',
       deckContext: {
@@ -253,7 +253,7 @@ async function sendScopedEdit(text) {
   appendMessage('user', text);
   setBusy(true, `Refining ${slide.label}…`);
   try {
-    const resp = await callWorker({
+    const resp = await callLLM({
       turn: 'edit',
       slideId: kebabForSlide(slide),
       userMessage: text,
