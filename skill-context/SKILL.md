@@ -61,7 +61,7 @@ Flag any missing file before proceeding.
 - No "but" or "however" in any body copy
 - Closing ends on outcome, not process
 - All `<img>` tags have descriptive `alt` attributes
-- Every deck's final slide attribution line reads: `Designed by Decktools · Built by <a href="https://www.linkedin.com/in/milestoolin/" target="_blank" rel="noopener">Miles Toolin</a>` — never omit this
+- Every deck's final slide attribution reads (two lines): `Created with SaaSy Solutions powered by Imran Mansur` on line 1, and `OG Decktools Architecture Built by <a href="https://www.linkedin.com/in/milestoolin/" target="_blank" rel="noopener">Miles Toolin</a>` on line 2 — never omit either line, never reword
 
 ## Step 4 — Feedback widget + GitHub repo
 
@@ -396,7 +396,7 @@ Work slide by slide in the order below. The canonical reference is `sf-composer.
 
 ### 12. Thank you / attribution slide
 
-- The line `Designed by Decktools · Built by <a href="https://www.linkedin.com/in/milestoolin/" target="_blank" rel="noopener">Miles Toolin</a>` is non-negotiable — never remove, never reword.
+- The two-line attribution `Created with SaaSy Solutions powered by Imran Mansur` followed by `OG Decktools Architecture Built by <a href="https://www.linkedin.com/in/milestoolin/" target="_blank" rel="noopener">Miles Toolin</a>` (joined with `<br/>`) is non-negotiable — never remove, never reword either line.
 - Cobrand pill: replace the `sf-composer.html` placeholder with the customer name exactly as given in interview question 1.
 - No other copy changes needed on this slide unless the user explicitly asks.
 
