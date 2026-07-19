@@ -20,10 +20,18 @@ import STYLE_GUIDE_MD from '../skill-context/STYLE-GUIDE.md';
 import SLIDE_PRINCIPLES_MD from '../skill-context/SLIDE-PRINCIPLES.md';
 import COMPOSER_HTML from '../skill-context/sf-composer.html';
 
+// Model aliases → concrete model IDs. When routing through SF LLM Gateway
+// Express, the gateway exposes Claude Sonnet variants (no Opus, no Haiku, no
+// Sonnet 5). We alias:
+//   'opus'   → the newest available Sonnet — used for full deck generation
+//   'sonnet' → an older Sonnet — used for cheap slide-scoped edits + suggestions
+//   'haiku'  → the oldest Sonnet — reserved for anything explicitly cheap
+// If a request eventually goes through Anthropic direct (BYOK sk-ant-*) and the
+// modern IDs come back, the routing layer just passes them through.
 const MODELS = {
-  opus: 'claude-opus-4-8',
-  sonnet: 'claude-sonnet-5',
-  haiku: 'claude-haiku-4-5-20251001',
+  opus:   'claude-sonnet-4-5-20250929',
+  sonnet: 'claude-sonnet-4-20250514',
+  haiku:  'claude-3-5-sonnet-20240620-v1',
 };
 
 const DEFAULT_MODEL = 'opus';
@@ -62,7 +70,20 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === '/health') {
-      return json({ ok: true, ts: new Date().toISOString() }, { request, env });
+      // Show which auth path the Worker would take with no BYOK header.
+      // Never prints the actual key values — just which env vars are set.
+      const resolved = resolveProvider(null, env);
+      return json({
+        ok: true,
+        ts: new Date().toISOString(),
+        secrets: {
+          LLM_GATEWAY_URL: !!env.LLM_GATEWAY_URL,
+          LLM_GATEWAY_KEY: !!env.LLM_GATEWAY_KEY,
+          ANTHROPIC_API_KEY: !!env.ANTHROPIC_API_KEY,
+        },
+        default_provider: resolved.provider,
+        default_endpoint: resolved.endpoint || null,
+      }, { request, env });
     }
 
     if (url.pathname === '/decktools/llm' && request.method === 'POST') {
@@ -125,64 +146,119 @@ async function handleLLM(body, request, env) {
   const systemBlocks = buildSystemBlocks();
   const { userPrompt, tool } = buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, questionSchema: body.questionSchema });
 
+  // Route based on provider. LLM Gateway (SF's OpenAI-compat gateway) speaks
+  // /chat/completions with a different shape. Anthropic direct speaks
+  // /v1/messages with tool_use blocks.
+  const { result, usage } = provider === 'llm-gateway'
+    ? await callOpenAICompat({ endpoint, apiKey, modelId, systemBlocks, userPrompt, tool })
+    : await callAnthropic({ endpoint, apiKey, modelId, systemBlocks, userPrompt, tool });
+
+  return {
+    ...result,
+    _meta: { provider, model: modelId, usage },
+  };
+}
+
+// ------------------------------------------------------------------ Anthropic /v1/messages
+async function callAnthropic({ endpoint, apiKey, modelId, systemBlocks, userPrompt, tool }) {
   const payload = {
     model: modelId,
     max_tokens: 4096,
-    system: systemBlocks,
+    system: systemBlocks,   // supports cache_control blocks
     messages: [{ role: 'user', content: userPrompt }],
     tools: [tool],
     tool_choice: { type: 'tool', name: tool.name },
   };
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const raw = await res.text();
+  if (!res.ok) throw upstreamError(res.status, raw);
+  const data = safeParse(raw);
+  if (!data) throw genericError('bad_upstream_json');
+  const toolUse = (data.content || []).find(c => c.type === 'tool_use');
+  if (!toolUse) throw Object.assign(genericError('no_tool_use'), { detail: data.content?.map(c => c.type).join(',') });
+  return { result: toolUse.input, usage: data.usage };
+}
 
-  const headers = provider === 'anthropic'
-    ? {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      }
-    : {
-        'Authorization': `Bearer ${apiKey}`,
-        'content-type': 'application/json',
-      };
+// ------------------------------------------------------------------ OpenAI-compat /chat/completions
+// SF LLM Gateway Express speaks the OpenAI Chat Completions API shape.
+// - system content is a single message with role: "system" (no cache_control)
+// - tools use type: "function" + function.parameters (not input_schema)
+// - tool_choice is {type: "function", function: {name: "..."}}
+// - the model's tool call comes back as choices[0].message.tool_calls[0].function.arguments,
+//   a JSON-encoded STRING that we JSON.parse.
+async function callOpenAICompat({ endpoint, apiKey, modelId, systemBlocks, userPrompt, tool }) {
+  const systemText = flattenSystemBlocks(systemBlocks);
+  const payload = {
+    model: modelId,
+    max_tokens: 4096,
+    messages: [
+      { role: 'system', content: systemText },
+      { role: 'user',   content: userPrompt },
+    ],
+    tools: [{
+      type: 'function',
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.input_schema,
+      },
+    }],
+    tool_choice: { type: 'function', function: { name: tool.name } },
+  };
 
   const res = await fetch(endpoint, {
     method: 'POST',
-    headers,
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'content-type': 'application/json',
+    },
     body: JSON.stringify(payload),
   });
-
   const raw = await res.text();
-  if (!res.ok) {
-    const err = new Error('upstream_error');
-    err.code = `upstream_${res.status}`;
-    err.status = res.status;
-    err.detail = safeParse(raw) || raw.slice(0, 500);
-    throw err;
-  }
-
+  if (!res.ok) throw upstreamError(res.status, raw);
   const data = safeParse(raw);
-  if (!data) {
-    const err = new Error('bad_upstream_json');
-    err.code = 'bad_upstream_json';
-    throw err;
-  }
+  if (!data) throw genericError('bad_upstream_json');
 
-  const toolUse = (data.content || []).find(c => c.type === 'tool_use');
-  if (!toolUse) {
-    const err = new Error('no_tool_use_in_response');
-    err.code = 'no_tool_use';
-    err.detail = data.content?.map(c => c.type).join(',');
-    throw err;
+  const choice = data.choices?.[0];
+  const toolCall = choice?.message?.tool_calls?.[0];
+  if (!toolCall) {
+    throw Object.assign(genericError('no_tool_use'), {
+      detail: choice?.message?.content?.slice?.(0, 300) || 'no tool_calls in response',
+    });
   }
+  const args = typeof toolCall.function?.arguments === 'string'
+    ? safeParse(toolCall.function.arguments)
+    : toolCall.function?.arguments;
+  if (!args) throw genericError('bad_tool_arguments');
+  return { result: args, usage: data.usage };
+}
 
-  return {
-    ...toolUse.input,
-    _meta: {
-      provider,
-      model: modelId,
-      usage: data.usage,
-    },
-  };
+function flattenSystemBlocks(blocks) {
+  // Anthropic system was an array of {type:'text', text, cache_control?}.
+  // OpenAI wants a single string. Concatenate the text with dividers so the
+  // model sees the same structure.
+  return (blocks || []).map((b) => b?.text || '').filter(Boolean).join('\n\n');
+}
+
+function upstreamError(status, raw) {
+  const err = new Error('upstream_error');
+  err.code = `upstream_${status}`;
+  err.status = status;
+  err.detail = safeParse(raw) || raw.slice(0, 500);
+  return err;
+}
+function genericError(code) {
+  const err = new Error(code);
+  err.code = code;
+  return err;
 }
 
 function safeParse(s) {
@@ -203,7 +279,7 @@ function resolveProvider(byokKey, env) {
     if (env.LLM_GATEWAY_URL) {
       return {
         provider: 'llm-gateway',
-        endpoint: joinUrl(env.LLM_GATEWAY_URL, '/v1/messages'),
+        endpoint: joinUrl(env.LLM_GATEWAY_URL, '/chat/completions'),
         apiKey: byokKey,
       };
     }
@@ -219,7 +295,7 @@ function resolveProvider(byokKey, env) {
   if (env.LLM_GATEWAY_URL && env.LLM_GATEWAY_KEY) {
     return {
       provider: 'llm-gateway',
-      endpoint: joinUrl(env.LLM_GATEWAY_URL, '/v1/messages'),
+      endpoint: joinUrl(env.LLM_GATEWAY_URL, '/chat/completions'),
       apiKey: env.LLM_GATEWAY_KEY,
     };
   }
