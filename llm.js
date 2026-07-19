@@ -5,13 +5,18 @@
 //   { turn: "generate", deckContext }              → full deck generation
 //   { turn: "edit",     slideId, userMessage, deckContext } → scoped edit
 
+// Default Worker URL — the deployed proxy that already has a server-held key.
+// Users can override this in Settings (e.g. to point at a fork or use their
+// own key), but the app works out of the box for anyone visiting the page.
+export const DEFAULT_WORKER_URL = 'https://icp-decktools-llm.imansur.workers.dev';
+
 const LS = {
   workerUrl: 'icp.workerUrl',
   apiKey: 'icp.apiKey',
 };
 
 export function getWorkerUrl() {
-  return (localStorage.getItem(LS.workerUrl) || '').trim();
+  return (localStorage.getItem(LS.workerUrl) || DEFAULT_WORKER_URL).trim();
 }
 export function getApiKey() {
   return (localStorage.getItem(LS.apiKey) || '').trim();

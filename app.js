@@ -173,13 +173,6 @@ function clearScope() {
 
 // ------------------------------------------------------------------ Interview
 function startInterview() {
-  if (!getWorkerUrl()) {
-    appendMessage(
-      'assistant',
-      "Before we start, open Settings (top-right) and paste your deployed Cloudflare Worker URL. Then click Start interview again."
-    );
-    return;
-  }
   clearScope();
   const log = document.getElementById('chat-log');
   // Reset log to a fresh start message

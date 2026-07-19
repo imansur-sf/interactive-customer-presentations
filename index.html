@@ -622,9 +622,9 @@
       <h2>Settings</h2>
       <p class="sub">Configure the LLM endpoint. Your key never leaves this browser.</p>
 
-      <label for="setting-worker-url">Worker URL</label>
-      <input type="text" id="setting-worker-url" placeholder="https://icp-decktools-llm.<subdomain>.workers.dev" />
-      <div class="hint">The Cloudflare Worker that proxies chat turns to the LLM.</div>
+      <label for="setting-worker-url">Worker URL (optional override)</label>
+      <input type="text" id="setting-worker-url" placeholder="Default: https://icp-decktools-llm.imansur.workers.dev" />
+      <div class="hint">The default Worker already has a server-held API key. Only override this if you're running your own fork of the Worker.</div>
 
       <label for="setting-api-key">API key (optional — BYOK)</label>
       <input type="password" id="setting-api-key" placeholder="sk-ant-… (Anthropic) or sk-… (LLM Gateway)" spellcheck="false" autocomplete="off" />
