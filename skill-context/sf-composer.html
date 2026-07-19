@@ -1,0 +1,1147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SF Composer · AI-Powered MarTech Journey Builder</title>
+  <link rel="stylesheet" href="tokens.css" />
+  <link rel="stylesheet" href="components.css" />
+  <link rel="stylesheet" href="animation.css" />
+  <link rel="stylesheet" href="animation-interactions.css" />
+  <style>
+    /* SF Composer — no customer accent, use sf-blue-m as accent pop */
+    :root { --accent: #066AFE; --accent-l: #00B3FF; }
+
+    html, body { height: 100%; overflow: hidden; }
+
+    /* ── Slide 4 · Architecture diagram ──────────────────────────── */
+    .arch-row {
+      display: flex;
+      align-items: flex-start;
+      margin-top: 40px;
+    }
+    .arch-node-card {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      opacity: 0;
+      transform: translateY(20px) scale(0.94);
+      transition: opacity 0.45s cubic-bezier(0.34,1.3,0.64,1),
+                  transform 0.45s cubic-bezier(0.34,1.3,0.64,1);
+    }
+    .arch-node-card.revealed { opacity:1; transform:translateY(0) scale(1); }
+
+    .arch-circle {
+      width: 80px; height: 80px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 14px;
+      position: relative;
+      transition: box-shadow 0.4s ease;
+    }
+    .arch-node-card.pulsing .arch-circle {
+      animation: arch-node-pulse 1.4s ease infinite;
+    }
+    @keyframes arch-node-pulse {
+      0%,100% { box-shadow: 0 0 0 0 var(--arch-glow,rgba(6,106,254,0.35)); }
+      50%      { box-shadow: 0 0 0 12px transparent; }
+    }
+
+    .arch-num {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
+      text-transform: uppercase; margin-bottom: 6px;
+    }
+    .arch-name {
+      font-size: 15px; font-weight: 700; color: var(--text);
+      margin-bottom: 3px;
+    }
+    .arch-sub {
+      font-size: 11px; color: var(--muted); margin-bottom: 10px;
+    }
+    .arch-desc {
+      font-size: 12px; color: var(--body); line-height: 1.55;
+      max-width: 180px;
+    }
+    .arch-tag {
+      display: inline-block; margin-top: 10px;
+      font-size: 9px; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; padding: 3px 9px;
+      border-radius: 999px;
+      background: rgba(0,0,0,0.04); color: var(--muted);
+    }
+
+    /* Horizontal connector */
+    .arch-conn {
+      flex: 0 0 72px;
+      position: relative;
+      align-self: stretch;
+    }
+    .arch-conn-line {
+      position: absolute;
+      top: 39px; /* center of 80px circle */
+      left: 0; right: 0; height: 2px;
+      border-radius: 1px;
+      background: var(--gray-200);
+      transition: background 0.5s ease;
+    }
+    .arch-conn.active .arch-conn-line {
+      background: var(--conn-grad);
+    }
+    /* Arrowhead */
+    .arch-conn-line::after {
+      content: '';
+      position: absolute;
+      right: -1px; top: 50%;
+      width: 8px; height: 8px;
+      border-top: 2px solid var(--gray-200);
+      border-right: 2px solid var(--gray-200);
+      transform: translateY(-50%) rotate(45deg);
+      transition: border-color 0.5s ease;
+    }
+    .arch-conn.active .arch-conn-line::after {
+      border-color: var(--conn-tip);
+    }
+    /* Label above line */
+    .arch-conn-lbl {
+      position: absolute;
+      top: 20px; left: 50%;
+      transform: translateX(-50%);
+      font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      color: var(--muted);
+      opacity: 0;
+      transition: opacity 0.4s ease 0.3s;
+    }
+    .arch-conn.active .arch-conn-lbl { opacity: 1; }
+    /* Traveling packet */
+    .arch-pkt {
+      position: absolute;
+      top: 33px; left: 0;
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--pkt-color, var(--sf-blue-m));
+      box-shadow: 0 0 10px 3px var(--pkt-glow, rgba(6,106,254,0.45));
+      opacity: 0;
+    }
+    .arch-pkt.flowing {
+      animation: pkt-h 1.1s linear infinite;
+    }
+    @keyframes pkt-h {
+      0%   { left: 0;    opacity: 0; }
+      8%   { opacity: 1; }
+      88%  { opacity: 1; }
+      100% { left: calc(100% - 10px); opacity: 0; }
+    }
+
+    .slide-deck {
+      width: 100vw;
+      height: 100vh;
+      position: relative;
+    }
+    .slide {
+      position: absolute;
+      inset: 0;
+      overflow-y: auto;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.4s ease;
+    }
+    .slide.active { opacity: 1; pointer-events: all; }
+
+    .cobrand-pill {
+      position: fixed;
+      top: 20px;
+      left: 28px;
+      background: rgba(255,255,255,0.9);
+      border-radius: 40px;
+      padding: 8px 18px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      z-index: 200;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+      backdrop-filter: blur(4px);
+    }
+    .cobrand-divider { width:1px; height:22px; background:#E5E5E5; }
+
+    .section-label {
+      position: fixed;
+      top: 24px;
+      right: 32px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(0,30,91,0.28);
+      z-index: 100;
+    }
+
+    .slide-controls {
+      position: fixed;
+      bottom: 20px;
+      right: 24px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      z-index: 200;
+    }
+    .slide-btn {
+      width: 30px; height: 30px;
+      border-radius: 50%;
+      border: 1px solid var(--gray-200);
+      background: var(--white);
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: var(--shadow-card);
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .slide-btn:hover { background: var(--sf-blue); color: #fff; border-color: var(--sf-blue); }
+    .slide-btn:disabled { opacity: 0.3; cursor: default; }
+    .slide-counter {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+      min-width: 32px;
+      text-align: center;
+    }
+
+    .slide-dots {
+      position: fixed;
+      bottom: 26px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 5px;
+      z-index: 200;
+    }
+    .dot {
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: var(--gray-200);
+      cursor: pointer;
+      transition: background 0.2s, transform 0.2s;
+    }
+    .dot.active {
+      background: var(--sf-blue);
+      transform: scale(1.4);
+    }
+
+    .slide-body {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 72px 48px 100px;
+    }
+    .slide-hero { padding-top: 0; }
+    .slide-hero .hero { min-height: 100vh; display: flex; align-items: center; }
+    .slide-hero .hero-inner { width: 100%; }
+
+    .slide-closing .slide-body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .slide-closing .closing-inner { width: 100%; }
+  </style>
+</head>
+<body>
+
+  <!-- ─── COBRAND PILL ────────────────────────────────────────── -->
+  <div class="cobrand-pill">
+    <img src="assets/logos/Salesforce-Corporate-Logo-Cloud-RBG.svg" width="28" height="28" alt="Salesforce" />
+    <div class="cobrand-divider"></div>
+    <span style="font-size:12px;font-weight:700;color:var(--sf-navy);letter-spacing:0.02em;">SF Composer</span>
+  </div>
+
+  <!-- ─── SLIDE DECK ─────────────────────────────────────────── -->
+  <div class="slide-deck">
+
+    <!-- SLIDE 1 · Hero -->
+    <div class="slide slide-hero active" data-section="">
+      <div class="hero">
+        <div class="hero-inner">
+          <div>
+            <div class="hero-eyebrow" data-animate="fade-up" data-anim-delay="0">AI · MarTech · Orchestration</div>
+            <h1 data-animate="fade-up" data-anim-delay="80">Your entire customer journey —<br/><em>designed by AI in seconds.</em></h1>
+            <p class="hero-sub" data-animate="fade-up" data-anim-delay="160">Marketing teams spend weeks mapping cross-channel journeys. SF Composer changes that — describe your use case in plain language and Claude builds the full journey, channel by channel, in real time.</p>
+            <div class="hero-quote" data-animate="fade-up" data-anim-delay="240">
+              <p>"We had the tools. We didn't have a fast way to connect them. SF Composer is the missing layer between strategy and execution."</p>
+              <cite>Concept validated with Salesforce SE team — May 2026</cite>
+            </div>
+          </div>
+          <div class="hero-kpi">
+            <div class="hero-kpi-card" data-animate="scale-in" data-anim-delay="300">
+              <div class="hkc-val"><span>30s</span></div>
+              <div class="hkc-label">From prompt to full journey canvas</div>
+            </div>
+            <div class="hero-kpi-card" data-animate="scale-in" data-anim-delay="360">
+              <div class="hkc-val"><span>11</span></div>
+              <div class="hkc-label">MarTech platform categories connected</div>
+            </div>
+            <div class="hero-kpi-card" data-animate="scale-in" data-anim-delay="420">
+              <div class="hkc-val">CX · EX</div>
+              <div class="hkc-label">Customer and employee lanes — one view</div>
+            </div>
+            <div class="hero-kpi-card" data-animate="scale-in" data-anim-delay="480">
+              <div class="hkc-val">0<span style="font-size:18px;color:rgba(255,255,255,0.5);"> code</span></div>
+              <div class="hkc-label">No technical skills required to build</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 2 · Why Now -->
+    <div class="slide" data-section="Why Now">
+      <div class="slide-body">
+        <div class="eyebrow" data-animate="fade-up" data-anim-delay="0">Why Now</div>
+        <div class="section-title" data-animate="fade-up" data-anim-delay="60">Four shifts that make<br/>this the right moment to build it</div>
+        <div class="section-sub" data-animate="fade-up" data-anim-delay="120">The tools marketers need already exist — what's been missing is the intelligence layer that connects them.</div>
+        <div class="card-grid-2">
+          <div class="card card-accent-blue" data-animate="scale-in" data-anim-delay="180">
+            <div class="card-icon">
+              <img src="assets/icons/2d/Agentforce.svg" width="28" height="28" alt="Agentforce" />
+            </div>
+            <div class="card-title">AI can reason about journeys</div>
+            <div class="card-body">Claude Sonnet can ingest a stack configuration and generate a coherent, multi-step, multi-channel journey without any templates. <strong>The intelligence to design journeys is now available via API — not locked inside a vendor platform.</strong></div>
+          </div>
+          <div class="card card-accent-accent" data-animate="scale-in" data-anim-delay="240">
+            <div class="card-icon">
+              <img src="assets/icons/2d/MuleSoft.png" width="28" height="28" alt="MuleSoft" />
+            </div>
+            <div class="card-title">MCP makes every platform connectable</div>
+            <div class="card-body">Model Context Protocol means Shopify, HubSpot, Segment, and Salesforce can all be orchestrated from a single AI session. <strong>The connector problem — the one that killed every previous MarTech unification attempt — is solved.</strong></div>
+          </div>
+          <div class="card card-accent-blue" data-animate="scale-in" data-anim-delay="300">
+            <div class="card-icon">
+              <img src="assets/icons/2d/Marketing.png" width="28" height="28" alt="Marketing Cloud" />
+            </div>
+            <div class="card-title">Journey complexity is at breaking point</div>
+            <div class="card-body">Marketers now manage 7–10 platforms on average. Journey mapping takes weeks and goes stale before it's finished. <strong>The speed gap between strategy and execution is costing pipeline — every quarter.</strong></div>
+          </div>
+          <div class="card card-accent-accent" data-animate="scale-in" data-anim-delay="360">
+            <div class="card-icon">
+              <img src="assets/icons/2d/Data Cloud.png" width="28" height="28" alt="Data Cloud" />
+            </div>
+            <div class="card-title">Salesforce customers already have the data</div>
+            <div class="card-body">Data Cloud customers have unified profiles ready to activate. SF Composer gives that data a fast path to execution — no new infrastructure, no new integration projects. <strong>The raw material is already there.</strong></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 3 · The Gap -->
+    <div class="slide" data-section="The Gap">
+      <div class="slide-body">
+        <div class="eyebrow eyebrow-accent" data-animate="fade-up" data-anim-delay="0">The Gap</div>
+        <div class="section-title" data-animate="fade-up" data-anim-delay="60">How teams work today vs.<br/>how SF Composer changes it</div>
+        <div class="section-sub" data-animate="fade-up" data-anim-delay="120">The difference isn't marginal — it's the gap between a week of workshops and thirty seconds of conversation.</div>
+        <div class="compare-wrap">
+          <div class="compare-head" data-animate="fade-in" data-anim-delay="180">
+            <div class="compare-head-col today">Today</div>
+            <div class="compare-head-col tomorrow">With SF Composer</div>
+          </div>
+          <div class="compare-row" data-animate="fade-up-sm" data-anim-delay="240">
+            <div class="compare-cell today"><strong>Whiteboard sessions.</strong> Journey mapping requires 2–3 cross-functional workshops before a single step is configured in any tool.</div>
+            <div class="compare-cell tomorrow"><strong>Plain language prompt.</strong> Describe the use case — "onboard a new loyalty member across email, SMS, and in-app" — and the full journey canvas generates in under 30 seconds.</div>
+          </div>
+          <div class="compare-row" data-animate="fade-up-sm" data-anim-delay="320">
+            <div class="compare-cell today"><strong>Platform silos.</strong> Email, SMS, push, and paid media are configured separately in separate tools by separate teams with no shared view of the journey.</div>
+            <div class="compare-cell tomorrow"><strong>One canvas, all channels.</strong> Every step — CX lane, EX lane, and the connectors between them — is visible in a single swimlane view. Changes propagate across all platforms.</div>
+          </div>
+          <div class="compare-row" data-animate="fade-up-sm" data-anim-delay="400">
+            <div class="compare-cell today"><strong>Static documentation.</strong> Journey maps live in Miro or PowerPoint. They go stale the moment a platform changes and are never connected to the tools that execute them.</div>
+            <div class="compare-cell tomorrow"><strong>Live, executable design.</strong> The canvas is the configuration. Export a step and it generates the MuleSoft flow, the Marketing Cloud journey entry, or the Agentforce action — directly from the design.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 4 · Architecture diagram -->
+    <div class="slide" data-section="How It Works">
+      <div class="slide-body">
+        <div class="eyebrow" data-animate="fade-up" data-anim-delay="0">How It Works</div>
+        <div class="section-title" data-animate="fade-up" data-anim-delay="60">Four layers. One canvas.<br/>From prompt to live execution.</div>
+        <div class="section-sub" data-animate="fade-up" data-anim-delay="120">Each layer builds on the one below — prompt in, journey out, execution wired.</div>
+
+        <div class="arch-row" id="s4-arch">
+
+          <!-- Node 1 -->
+          <div class="arch-node-card" id="s4-n1" style="--arch-glow:rgba(2,42,192,0.35);">
+            <div class="arch-num" style="color:var(--sf-blue);">01</div>
+            <div class="arch-circle" style="background:rgba(2,42,192,0.08);border:2px solid rgba(2,42,192,0.2);">
+              <img src="assets/icons/2d/Agentforce.svg" width="36" height="36" alt="Claude AI" />
+            </div>
+            <div class="arch-name">Claude AI</div>
+            <div class="arch-sub">Journey Intelligence</div>
+            <div class="arch-desc">Natural language brief → structured multi-step journey with CX and EX lanes. No templates.</div>
+            <span class="arch-tag" style="background:rgba(2,42,192,0.08);color:var(--sf-blue);">AI Model</span>
+          </div>
+
+          <!-- Connector 1→2 -->
+          <div class="arch-conn" id="s4-c1" style="--conn-grad:linear-gradient(90deg,#022AC0,#066AFE);--conn-tip:#066AFE;">
+            <div class="arch-conn-line">
+              <div class="arch-pkt" id="s4-p1" style="--pkt-color:#066AFE;--pkt-glow:rgba(6,106,254,0.45);"></div>
+            </div>
+            <div class="arch-conn-lbl" style="color:var(--sf-blue);">Journey JSON</div>
+          </div>
+
+          <!-- Node 2 -->
+          <div class="arch-node-card" id="s4-n2" style="--arch-glow:rgba(6,106,254,0.35);">
+            <div class="arch-num" style="color:var(--sf-blue-m);">02</div>
+            <div class="arch-circle" style="background:rgba(6,106,254,0.08);border:2px solid rgba(6,106,254,0.2);">
+              <img src="assets/icons/2d/Experience Cloud.png" width="36" height="36" alt="Canvas Engine" />
+            </div>
+            <div class="arch-name">Canvas Engine</div>
+            <div class="arch-sub">Visual Swimlane Renderer</div>
+            <div class="arch-desc">Renders AI output as an interactive CX + EX swimlane. Each step is clickable and carries full config metadata.</div>
+            <span class="arch-tag" style="background:rgba(6,106,254,0.08);color:var(--sf-blue-m);">Frontend</span>
+          </div>
+
+          <!-- Connector 2→3 -->
+          <div class="arch-conn" id="s4-c2" style="--conn-grad:linear-gradient(90deg,#066AFE,#00B3FF);--conn-tip:#00B3FF;">
+            <div class="arch-conn-line">
+              <div class="arch-pkt" id="s4-p2" style="--pkt-color:#00B3FF;--pkt-glow:rgba(0,179,255,0.45);"></div>
+            </div>
+            <div class="arch-conn-lbl" style="color:var(--sf-blue-m);">Stack Config</div>
+          </div>
+
+          <!-- Node 3 -->
+          <div class="arch-node-card" id="s4-n3" style="--arch-glow:rgba(0,179,255,0.35);">
+            <div class="arch-num" style="color:var(--sf-blue-l);">03</div>
+            <div class="arch-circle" style="background:rgba(0,179,255,0.08);border:2px solid rgba(0,179,255,0.2);">
+              <img src="assets/icons/2d/Data Cloud.png" width="36" height="36" alt="Stack Configurator" />
+            </div>
+            <div class="arch-name">Stack Configurator</div>
+            <div class="arch-sub">11 Platform Categories</div>
+            <div class="arch-desc">Marketers pick their live tools. Claude builds the journey using only what they actually have. No vendor assumptions.</div>
+            <span class="arch-tag" style="background:rgba(0,179,255,0.1);color:var(--sf-blue-l);">MCP Connected</span>
+          </div>
+
+          <!-- Connector 3→4 -->
+          <div class="arch-conn" id="s4-c3" style="--conn-grad:linear-gradient(90deg,#00B3FF,#06A59A);--conn-tip:#06A59A;">
+            <div class="arch-conn-line">
+              <div class="arch-pkt" id="s4-p3" style="--pkt-color:#06A59A;--pkt-glow:rgba(6,165,154,0.45);"></div>
+            </div>
+            <div class="arch-conn-lbl" style="color:var(--teal);">Export</div>
+          </div>
+
+          <!-- Node 4 -->
+          <div class="arch-node-card" id="s4-n4" style="--arch-glow:rgba(6,165,154,0.35);">
+            <div class="arch-num" style="color:var(--teal);">04</div>
+            <div class="arch-circle" style="background:rgba(6,165,154,0.08);border:2px solid rgba(6,165,154,0.25);">
+              <img src="assets/icons/2d/MuleSoft.png" width="36" height="36" alt="MCP Export Layer" />
+            </div>
+            <div class="arch-name">MCP + Export</div>
+            <div class="arch-sub">Live Execution Bridge</div>
+            <div class="arch-desc">Each step exports as a MuleSoft flow, MC entry source, Agentforce action, or Salesforce Flow — one click.</div>
+            <span class="arch-tag" style="background:rgba(6,165,154,0.1);color:var(--teal);">Live Execution</span>
+          </div>
+
+        </div><!-- /arch-row -->
+      </div>
+    </div>
+
+    <!-- SLIDE 5 · AI in Action (typewriter chat + build stream) -->
+    <div class="slide" data-section="AI in Action">
+      <div class="slide-body">
+        <div class="eyebrow" data-animate="fade-up" data-anim-delay="0">AI in Action</div>
+        <div class="section-title" data-animate="fade-up" data-anim-delay="60">From prompt to journey canvas —<br/>watch it happen in real time.</div>
+        <div class="section-sub" data-animate="fade-up" data-anim-delay="120" style="margin-bottom:40px;">Type a use case. Claude generates the full multi-channel journey, channel by channel, with CX and EX lanes populated. No templates.</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:32px;align-items:start;" data-animate="fade-up" data-anim-delay="180">
+          <!-- Chat simulation -->
+          <div style="background:var(--sf-navy);border-radius:12px;padding:28px;">
+            <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.35);margin-bottom:16px;">SF Composer · Journey Builder</div>
+            <div class="chat-wrap" id="s5-chat">
+              <div class="chat-msg user" id="s5-user">
+                <div class="type-stack">
+                  <span class="type-ghost">Onboard a new loyalty member — we use Salesforce, Shopify, and Klaviyo</span>
+                  <span class="type-live" id="s5-user-live"></span>
+                </div>
+              </div>
+              <div class="chat-bot-label" id="s5-bot-label" style="opacity:0;padding-left:4px;">Claude · Journey Intelligence</div>
+              <div class="chat-msg bot" id="s5-bot" style="width:100%;">
+                <div class="type-stack">
+                  <span class="type-ghost">Building your 7-step loyalty onboarding journey across Salesforce, Shopify, and Klaviyo…</span>
+                  <span class="type-live" id="s5-bot-live"></span>
+                </div>
+                <div style="margin-top:12px;" id="s5-steps"></div>
+              </div>
+            </div>
+          </div>
+          <!-- Journey steps stream -->
+          <div>
+            <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--sf-blue);margin-bottom:16px;">Journey Canvas · Generating</div>
+            <div id="s5-canvas" style="display:flex;flex-direction:column;gap:8px;"></div>
+            <div id="s5-complete" style="margin-top:20px;opacity:0;transition:opacity 0.5s ease;">
+              <div style="display:flex;align-items:center;gap:10px;padding:14px 18px;background:rgba(6,165,154,0.08);border:1px solid rgba(6,165,154,0.25);border-radius:8px;">
+                <div style="width:10px;height:10px;border-radius:50%;background:var(--teal);flex-shrink:0;"></div>
+                <div style="font-size:13px;font-weight:600;color:var(--teal);">7 steps generated · Canvas ready · Export available</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:28px;display:flex;gap:10px;" data-animate="fade-up" data-anim-delay="260">
+          <button class="anim-play-btn" id="s5-play">&#9654; Play</button>
+          <button class="anim-reset-btn" id="s5-reset">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 6 · Data Pipeline (pipe animation + countUp KPIs) -->
+    <div class="slide" data-section="Real-Time Data">
+      <div class="slide-body">
+        <div class="eyebrow" data-animate="fade-up" data-anim-delay="0">Real-Time Data</div>
+        <div class="section-title" data-animate="fade-up" data-anim-delay="60">Every platform connected.<br/>One unified customer view.</div>
+        <div class="section-sub" data-animate="fade-up" data-anim-delay="120" style="margin-bottom:40px;">Data Cloud ingests signals from every platform in your stack. SF Composer reads that unified profile and builds journeys on live data — not yesterday's export.</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:start;" data-animate="fade-up" data-anim-delay="200">
+          <!-- Pipeline -->
+          <div class="pipe-wrap" id="s6-pipe">
+            <div class="pipe-node" id="s6-n1">
+              <div class="pipe-icon">
+                <img src="assets/icons/2d/Data Cloud.png" width="26" height="26" alt="Data Cloud" />
+              </div>
+              <div>
+                <div style="font-size:13px;font-weight:700;color:var(--text);">Data Cloud</div>
+                <div style="font-size:12px;color:var(--muted);margin-top:2px;">Unified Customer Profile</div>
+                <div class="sync-indicator" id="s6-sync1" style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:6px;">
+                  <span class="sync-dot"></span> Waiting for sync
+                </div>
+              </div>
+            </div>
+            <div class="pipe-line" id="s6-l1" style="position:relative;"><div class="pipe-packet" id="s6-p1"></div></div>
+            <div class="pipe-node" id="s6-n2">
+              <div class="pipe-icon">
+                <img src="assets/icons/2d/Marketing.png" width="26" height="26" alt="Marketing Cloud" />
+              </div>
+              <div>
+                <div style="font-size:13px;font-weight:700;color:var(--text);">Marketing Cloud</div>
+                <div style="font-size:12px;color:var(--muted);margin-top:2px;">Journey Entry Sources</div>
+                <div class="sync-indicator" id="s6-sync2" style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:6px;">
+                  <span class="sync-dot"></span> Idle
+                </div>
+              </div>
+            </div>
+            <div class="pipe-line" id="s6-l2" style="position:relative;"><div class="pipe-packet" id="s6-p2"></div></div>
+            <div class="pipe-node" id="s6-n3">
+              <div class="pipe-icon">
+                <img src="assets/icons/2d/Agentforce.svg" width="26" height="26" alt="Agentforce" />
+              </div>
+              <div>
+                <div style="font-size:13px;font-weight:700;color:var(--text);">Agentforce</div>
+                <div style="font-size:12px;color:var(--muted);margin-top:2px;">AI Agent Actions</div>
+                <div class="sync-indicator" id="s6-sync3" style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:6px;">
+                  <span class="sync-dot"></span> Idle
+                </div>
+              </div>
+            </div>
+            <div class="pipe-line back" id="s6-l3" style="position:relative;"><div class="pipe-packet back" id="s6-p3"></div></div>
+            <div class="pipe-node" id="s6-n4">
+              <div class="pipe-icon">
+                <img src="assets/icons/2d/MuleSoft.png" width="26" height="26" alt="MuleSoft" />
+              </div>
+              <div>
+                <div style="font-size:13px;font-weight:700;color:var(--text);">MuleSoft</div>
+                <div style="font-size:12px;color:var(--muted);margin-top:2px;">Live Execution Bridge</div>
+                <div class="sync-indicator" id="s6-sync4" style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:6px;">
+                  <span class="sync-dot"></span> Standby
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- KPI counters + event stream -->
+          <div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px;">
+              <div style="background:var(--sf-navy);border-radius:8px;padding:20px;text-align:center;">
+                <div id="s6-kpi1" style="font-family:var(--font-display);font-size:32px;font-weight:400;color:#fff;">0</div>
+                <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px;">Profiles unified</div>
+              </div>
+              <div style="background:var(--sf-navy);border-radius:8px;padding:20px;text-align:center;">
+                <div id="s6-kpi2" style="font-family:var(--font-display);font-size:32px;font-weight:400;color:#fff;">0</div>
+                <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px;">Journeys active</div>
+              </div>
+              <div style="background:var(--sf-navy);border-radius:8px;padding:20px;text-align:center;">
+                <div id="s6-kpi3" style="font-family:var(--font-display);font-size:32px;font-weight:400;color:#fff;">0</div>
+                <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px;">Events / second</div>
+              </div>
+              <div style="background:var(--sf-navy);border-radius:8px;padding:20px;text-align:center;">
+                <div id="s6-kpi4" style="font-family:var(--font-display);font-size:32px;font-weight:400;color:var(--teal-l);">0<span style="font-size:16px;">ms</span></div>
+                <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px;">Avg decision latency</div>
+              </div>
+            </div>
+            <div style="background:var(--sf-navy);border-radius:8px;padding:16px;">
+              <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.35);margin-bottom:10px;">Live Event Stream</div>
+              <ul class="stream-list" id="s6-stream"></ul>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:24px;display:flex;gap:10px;" data-animate="fade-up" data-anim-delay="280">
+          <button class="anim-play-btn" id="s6-play">&#9654; Play</button>
+          <button class="anim-reset-btn" id="s6-reset">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 7 · Beachheads -->
+    <div class="slide" data-section="Start Here">
+      <div class="slide-body">
+        <div class="eyebrow" data-animate="fade-up" data-anim-delay="0">Start Here</div>
+        <div class="section-title" data-animate="fade-up" data-anim-delay="60">Two use cases that prove<br/>the model immediately.</div>
+        <div class="section-sub" data-animate="fade-up" data-anim-delay="120">Both are live today in the working prototype. Neither requires a Salesforce org to demo — mock mode shows the full journey experience in any browser.</div>
+        <div class="card-grid-2">
+          <div class="beach-card" data-animate="scale-in" data-anim-delay="200">
+            <div class="bc-head">
+              <div class="bc-icon" style="background:rgba(2,42,192,0.08);">
+                <img src="assets/icons/2d/Loyalty Management.svg" width="28" height="28" alt="Loyalty Management" />
+              </div>
+              <div class="bc-meta">
+                <div class="bc-title">Loyalty Onboarding Journey</div>
+                <div class="bc-sub">New member activation across all channels</div>
+              </div>
+              <div class="bc-badge" style="background:rgba(2,42,192,0.08);color:var(--sf-blue);border:1px solid rgba(2,42,192,0.15);">Live in demo</div>
+            </div>
+            <div class="bc-body">
+              <div class="bc-use-case">
+                <div class="bc-dot" style="background:var(--sf-blue);"></div>
+                <div>
+                  <div class="bc-uc-title">Prompt-to-canvas in 30 seconds</div>
+                  <div class="bc-uc-desc">Type "onboard a new loyalty member — we use Salesforce, Shopify, and Klaviyo" and watch the full 7-step journey generate with CX and EX lanes populated.</div>
+                </div>
+              </div>
+              <div class="bc-use-case">
+                <div class="bc-dot" style="background:var(--sf-blue);"></div>
+                <div>
+                  <div class="bc-uc-title">Editable at every step</div>
+                  <div class="bc-uc-desc">Click any step to open the detail panel — adjust messaging, timing, channel, or configuration path. The canvas updates live without regenerating.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="beach-card" data-animate="scale-in" data-anim-delay="300">
+            <div class="bc-head">
+              <div class="bc-icon" style="background:rgba(6,106,254,0.08);">
+                <img src="assets/icons/2d/Agentforce.svg" width="28" height="28" alt="Agentforce" />
+              </div>
+              <div class="bc-meta">
+                <div class="bc-title">Agentforce-Assisted Journeys</div>
+                <div class="bc-sub">AI agents in the execution layer</div>
+              </div>
+              <div class="bc-badge" style="background:rgba(6,106,254,0.08);color:var(--accent);border:1px solid rgba(6,106,254,0.2);">Roadmap</div>
+            </div>
+            <div class="bc-body">
+              <div class="bc-use-case">
+                <div class="bc-dot" style="background:var(--accent);"></div>
+                <div>
+                  <div class="bc-uc-title">Agent steps in the journey canvas</div>
+                  <div class="bc-uc-desc">Journey steps marked as "agent" in the canvas automatically generate Agentforce action definitions — the design becomes the agent spec without a separate authoring process.</div>
+                </div>
+              </div>
+              <div class="bc-use-case">
+                <div class="bc-dot" style="background:var(--accent);"></div>
+                <div>
+                  <div class="bc-uc-title">Live Salesforce data in the journey</div>
+                  <div class="bc-uc-desc">When the Salesforce MCP server is active, journey steps pull real loyalty tiers, product catalogues, and segment memberships — no mock data needed for the live demo path.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 8 · Scale Story -->
+    <div class="slide" data-section="Where This Goes">
+      <div class="slide-body">
+        <div class="eyebrow" data-animate="fade-up" data-anim-delay="0">Where This Goes</div>
+        <div class="section-title" data-animate="fade-up" data-anim-delay="60">Three extensions that open<br/>the full platform opportunity</div>
+        <div class="section-sub" data-animate="fade-up" data-anim-delay="120">The canvas and AI layer are the foundation. These three extensions turn SF Composer from a demo asset into a product-grade journey design system.</div>
+        <div class="card-grid-3">
+          <div class="scale-card" data-animate="scale-in" data-anim-delay="200">
+            <div class="sc-num">EXTENSION 01</div>
+            <div class="sc-title">MuleSoft live execution bridge</div>
+            <div class="sc-body">Every journey step with a MCP config path exports as a deployable MuleSoft flow. Journey design and integration design become the same artefact — built once, executed anywhere in the Anypoint platform.</div>
+          </div>
+          <div class="scale-card" data-animate="scale-in" data-anim-delay="300">
+            <div class="sc-num">EXTENSION 02</div>
+            <div class="sc-title">Data Cloud segment activation</div>
+            <div class="sc-body">Journey entry conditions in the canvas map directly to Data Cloud segment definitions. When a customer's profile triggers the segment, the journey fires — no manual handoff between the design tool and the data platform.</div>
+          </div>
+          <div class="scale-card" data-animate="scale-in" data-anim-delay="400">
+            <div class="sc-num">EXTENSION 03</div>
+            <div class="sc-title">Multi-journey workspace</div>
+            <div class="sc-body">Teams manage dozens of journeys simultaneously. A workspace layer lets marketers organise journeys by programme, campaign, or lifecycle stage — with shared stack configuration and reusable step templates across all of them.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 9 · Proof -->
+    <div class="slide" data-section="What It Does Today">
+      <div class="slide-body">
+        <div class="eyebrow" data-animate="fade-up" data-anim-delay="0">What It Does Today</div>
+        <div class="section-title" data-animate="fade-up" data-anim-delay="60" style="margin-bottom:32px;">A working prototype —<br/>not a concept deck.</div>
+        <div class="proof-wrap" data-animate="fade-up" data-anim-delay="120">
+          <div>
+            <div class="proof-eyebrow">SF Composer · Built May 2026</div>
+            <div class="proof-quote">"The gap between what a marketing team wants to do and what they can configure in their tools is still measured in weeks. SF Composer closes that gap to a conversation."</div>
+            <p class="proof-desc">The prototype runs today at localhost:3131 — stack selector, AI journey generation, swimlane canvas, and step detail panel all working. Mock mode means it runs without an API key. Live mode pulls real Salesforce data via the SF CLI MCP server. <strong>The full demo path — prompt, generate, edit, export — takes under two minutes from a cold start.</strong></p>
+            <div class="proof-source">Built on: Claude Sonnet 4.6 · Node/Express · Vanilla JS Canvas · Salesforce MCP · MuleSoft Anypoint MCP</div>
+          </div>
+          <div class="proof-stats">
+            <div class="proof-stat" data-animate="scale-in" data-anim-delay="220">
+              <div class="proof-stat-val"><span>30s</span></div>
+              <div class="proof-stat-label">Prompt to full journey canvas</div>
+            </div>
+            <div class="proof-stat" data-animate="scale-in" data-anim-delay="300">
+              <div class="proof-stat-val">11</div>
+              <div class="proof-stat-label">Platform categories in the stack selector</div>
+            </div>
+            <div class="proof-stat" data-animate="scale-in" data-anim-delay="380">
+              <div class="proof-stat-val"><span>3</span></div>
+              <div class="proof-stat-label">Config paths: Salesforce native, MCP, Agent</div>
+            </div>
+            <div class="proof-stat" data-animate="scale-in" data-anim-delay="460">
+              <div class="proof-stat-val">0</div>
+              <div class="proof-stat-label">Vendor dependencies to run the demo</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 10 · Roadmap -->
+    <div class="slide" data-section="The Path Forward">
+      <div class="slide-body">
+        <div class="eyebrow" data-animate="fade-up" data-anim-delay="0">The Path Forward</div>
+        <div class="section-title" data-animate="fade-up" data-anim-delay="60">Working prototype today.<br/>Product-grade tool in two phases.</div>
+        <div class="section-sub" data-animate="fade-up" data-anim-delay="120">Phase 1 completes the demo-ready experience. Phase 2 connects it to live execution infrastructure.</div>
+        <div class="card-grid-2">
+          <div class="phase-card" data-animate="scale-in" data-anim-delay="200">
+            <div class="phase-head">
+              <div class="phase-badge" style="background:rgba(2,42,192,0.08);color:var(--sf-blue);border:1px solid rgba(2,42,192,0.15);">Phase 1 · Now – 60 days</div>
+              <div>
+                <div class="phase-title">Demo-complete</div>
+                <div class="phase-timeline">Full SE demo path, shareable build</div>
+              </div>
+            </div>
+            <div class="phase-body">
+              <div class="phase-item">
+                <div class="phase-item-dot" style="background:var(--sf-blue);"></div>
+                <div><div class="phase-item-title">Live Salesforce data path</div><div class="phase-item-desc">Replace mock journeys with real Data Cloud segments and loyalty programme data via SF CLI MCP.</div></div>
+              </div>
+              <div class="phase-item">
+                <div class="phase-item-dot" style="background:var(--sf-blue);"></div>
+                <div><div class="phase-item-title">Journey export</div><div class="phase-item-desc">Each step exports as a structured JSON artefact ready for MuleSoft flow import or Marketing Cloud entry configuration.</div></div>
+              </div>
+              <div class="phase-item">
+                <div class="phase-item-dot" style="background:var(--sf-blue);"></div>
+                <div><div class="phase-item-title">Hosted demo URL</div><div class="phase-item-desc">Deployed to a shareable URL — no local setup required for colleagues or customers to explore the prototype.</div></div>
+              </div>
+            </div>
+          </div>
+          <div class="phase-card" data-animate="scale-in" data-anim-delay="320">
+            <div class="phase-head">
+              <div class="phase-badge" style="background:rgba(6,106,254,0.08);color:var(--accent);border:1px solid rgba(6,106,254,0.2);">Phase 2 · 60 days – 6 months</div>
+              <div>
+                <div class="phase-title">Live execution</div>
+                <div class="phase-timeline">MuleSoft bridge + Agentforce integration</div>
+              </div>
+            </div>
+            <div class="phase-body">
+              <div class="phase-item">
+                <div class="phase-item-dot" style="background:var(--accent);"></div>
+                <div><div class="phase-item-title">MuleSoft Anypoint deployment</div><div class="phase-item-desc">Journey steps with MCP config paths deploy directly to Anypoint Runtime Manager — canvas to live API in one action.</div></div>
+              </div>
+              <div class="phase-item">
+                <div class="phase-item-dot" style="background:var(--accent);"></div>
+                <div><div class="phase-item-title">Agentforce action generation</div><div class="phase-item-desc">Agent steps in the canvas auto-generate Agentforce action definitions — no separate authoring in Agent Builder.</div></div>
+              </div>
+              <div class="phase-item">
+                <div class="phase-item-dot" style="background:var(--accent);"></div>
+                <div><div class="phase-item-title">Multi-journey workspace</div><div class="phase-item-desc">Shared stack config, reusable steps, and journey organisation by programme — built for marketing ops teams, not just SEs.</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 11 · Closing -->
+    <div class="slide slide-closing" data-section="Next Steps">
+      <div class="slide-body">
+        <div class="closing-inner">
+          <h2 data-animate="fade-up" data-anim-delay="0">The prototype is live.<br/>The use case is real.<br/>30 seconds to see it work.</h2>
+          <p data-animate="fade-up" data-anim-delay="100">One conversation replaces a week of journey workshops — and the canvas it produces is already connected to the tools that execute it.</p>
+          <div class="closing-steps" data-animate="fade-up" data-anim-delay="200">
+            <div class="c-step">See the live demo</div>
+            <div class="c-arrow">→</div>
+            <div class="c-step">Identify your first use case</div>
+            <div class="c-arrow">→</div>
+            <div class="c-step">Connect your stack</div>
+            <div class="c-arrow">→</div>
+            <div class="c-step primary">Your first journey live this week</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 12 · Thank You / Questions -->
+    <div class="slide" data-section="">
+      <div style="min-height:100vh;background:var(--grad-evening);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:80px 48px;position:relative;">
+        <!-- Top accent line -->
+        <div style="position:absolute;top:0;left:0;right:0;height:3px;background:var(--sf-blue-l);"></div>
+
+        <div data-animate="scale-in" data-anim-delay="0" style="margin-bottom:40px;">
+          <img src="assets/logos/Salesforce-Corporate-Logo-Cloud-RBG.svg" width="64" height="64" alt="Salesforce" style="opacity:0.85;" />
+        </div>
+
+        <div data-animate="fade-up" data-anim-delay="100">
+          <div style="font-size:11px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:var(--sf-blue-l);margin-bottom:20px;">SF Composer · AI-Powered Journey Builder</div>
+          <h1 style="font-family:var(--font-display);font-size:clamp(40px,5vw,72px);font-weight:400;color:#fff;line-height:1.05;letter-spacing:-0.025em;margin-bottom:24px;">Thank you.</h1>
+          <p style="font-size:18px;color:rgba(255,255,255,0.65);max-width:520px;margin:0 auto 48px;line-height:1.6;">Questions, ideas, or want to see the live demo? Let's talk.</p>
+        </div>
+
+        <!-- Contact / action row -->
+        <div data-animate="fade-up" data-anim-delay="200" style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-bottom:56px;">
+          <div style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:12px;padding:20px 28px;min-width:180px;">
+            <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-bottom:8px;">Live Demo</div>
+            <div style="font-size:14px;font-weight:600;color:#fff;">localhost:3131</div>
+            <div style="font-size:12px;color:rgba(255,255,255,0.45);margin-top:4px;">or hosted URL once deployed</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:12px;padding:20px 28px;min-width:180px;">
+            <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-bottom:8px;">Built on</div>
+            <div style="font-size:14px;font-weight:600;color:#fff;">Claude Sonnet 4.6</div>
+            <div style="font-size:12px;color:rgba(255,255,255,0.45);margin-top:4px;">Node · Express · Salesforce MCP</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:12px;padding:20px 28px;min-width:180px;">
+            <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-bottom:8px;">Time to first journey</div>
+            <div style="font-family:var(--font-display);font-size:28px;font-weight:400;color:var(--sf-blue-l);">30s</div>
+            <div style="font-size:12px;color:rgba(255,255,255,0.45);margin-top:4px;">from cold start to canvas</div>
+          </div>
+        </div>
+
+        <!-- Questions invitation -->
+        <div data-animate="fade-up" data-anim-delay="300" style="max-width:640px;border-top:1px solid rgba(255,255,255,0.12);padding-top:40px;">
+          <div style="font-size:13px;color:rgba(255,255,255,0.4);letter-spacing:0.04em;">Designed by Decktools · Built by <a href="https://www.linkedin.com/in/milestoolin/" target="_blank" rel="noopener" style="color:rgba(255,255,255,0.55);text-decoration:none;border-bottom:1px solid rgba(255,255,255,0.2);transition:color 0.15s,border-color 0.15s;" onmouseover="this.style.color='#fff';this.style.borderColor='rgba(255,255,255,0.6)'" onmouseout="this.style.color='rgba(255,255,255,0.55)';this.style.borderColor='rgba(255,255,255,0.2)'">Miles Toolin</a> with Claude Code</div>
+        </div>
+
+        <!-- Bottom accent -->
+        <div style="position:absolute;bottom:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--sf-blue),var(--sf-blue-l),var(--teal-l));"></div>
+      </div>
+    </div>
+
+  </div><!-- /slide-deck -->
+
+  <!-- ─── NAVIGATION CONTROLS ────────────────────────────────── -->
+  <div class="section-label" id="section-label"></div>
+  <div class="slide-dots" id="dots"></div>
+
+  <div class="slide-controls">
+    <button class="slide-btn" id="prev" title="Previous (←)">&#8592;</button>
+    <span class="slide-counter" id="counter">1 / 12</span>
+    <button class="slide-btn" id="next" title="Next (→)">&#8594;</button>
+  </div>
+
+  <script>
+    const slides = document.querySelectorAll('.slide');
+    const dotsEl = document.getElementById('dots');
+    const counterEl = document.getElementById('counter');
+    const prevBtn = document.getElementById('prev');
+    const nextBtn = document.getElementById('next');
+    const sectionLabel = document.getElementById('section-label');
+    let current = 0;
+
+    slides.forEach((_, i) => {
+      const d = document.createElement('div');
+      d.className = 'dot' + (i === 0 ? ' active' : '');
+      d.addEventListener('click', () => go(i));
+      dotsEl.appendChild(d);
+    });
+
+    function go(n) {
+      slides[current].classList.remove('active');
+      document.querySelectorAll('.dot')[current].classList.remove('active');
+      current = Math.max(0, Math.min(n, slides.length - 1));
+      slides[current].classList.add('active');
+      slides[current].scrollTop = 0;
+      document.querySelectorAll('.dot')[current].classList.add('active');
+      counterEl.textContent = `${current + 1} / ${slides.length}`;
+      sectionLabel.textContent = slides[current].dataset.section || '';
+      prevBtn.disabled = current === 0;
+      nextBtn.disabled = current === slides.length - 1;
+    }
+
+    prevBtn.addEventListener('click', () => go(current - 1));
+    nextBtn.addEventListener('click', () => go(current + 1));
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') go(current + 1);
+      if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   go(current - 1);
+    });
+
+    go(0);
+  </script>
+  <script src="animation.js"></script>
+  <script>
+  /* ─── Slide 4 · Architecture diagram — auto-plays on enter ─────── */
+  (() => {
+    const NODES = ['s4-n1','s4-n2','s4-n3','s4-n4'];
+    const CONNS = ['s4-c1','s4-c2','s4-c3'];
+    const PKTS  = ['s4-p1','s4-p2','s4-p3'];
+    const seq = makeSequence();
+
+    function resetS4() {
+      seq.abort();
+      NODES.forEach(id => {
+        const n = document.getElementById(id);
+        n.classList.remove('revealed','pulsing');
+      });
+      CONNS.forEach(id => document.getElementById(id).classList.remove('active'));
+      PKTS.forEach(id  => document.getElementById(id).classList.remove('flowing'));
+    }
+
+    async function playS4() {
+      resetS4();
+      seq.run(async (guard) => {
+        for (let i = 0; i < NODES.length; i++) {
+          // Reveal node
+          document.getElementById(NODES[i]).classList.add('revealed');
+          await guard(120);
+          document.getElementById(NODES[i]).classList.add('pulsing');
+          await guard(400);
+
+          // Activate connector + packet after each node except last
+          if (i < CONNS.length) {
+            document.getElementById(CONNS[i]).classList.add('active');
+            await guard(200);
+            document.getElementById(PKTS[i]).classList.add('flowing');
+            await guard(700);
+          }
+        }
+        // Settle — remove pulse from all but keep connectors flowing
+        await guard(600);
+        NODES.forEach(id => document.getElementById(id).classList.remove('pulsing'));
+      });
+    }
+
+    // Wire into slide active observer — auto-play every time slide enters
+    const slide4 = document.querySelector('.slide[data-section="How It Works"]');
+    new MutationObserver(([m]) => {
+      if (slide4.classList.contains('active')) playS4();
+      else resetS4();
+    }).observe(slide4, { attributes: true, attributeFilter: ['class'] });
+
+    if (slide4.classList.contains('active')) playS4();
+  })();
+
+  /* ─── Slide 5 · AI Prompt + Journey Build animation ─────────────── */
+  (() => {
+    const STEPS = [
+      { label: 'Welcome email',        platform: 'Klaviyo',         color: 'var(--sf-blue-l)' },
+      { label: 'Loyalty tier assign',  platform: 'Salesforce CRM',  color: 'var(--sf-blue)' },
+      { label: 'First purchase push',  platform: 'Shopify',         color: 'var(--teal)' },
+      { label: 'Points balance SMS',   platform: 'Klaviyo',         color: 'var(--sf-blue-l)' },
+      { label: 'VIP upgrade check',    platform: 'Data Cloud',      color: 'var(--violet-l)' },
+      { label: 'Reward offer email',   platform: 'Marketing Cloud', color: 'var(--sf-blue)' },
+      { label: 'Engagement score',     platform: 'Agentforce',      color: 'var(--teal-l)' },
+    ];
+
+    const seq = makeSequence();
+    const userEl   = document.getElementById('s5-user');
+    const userLive = document.getElementById('s5-user-live');
+    const botLabel = document.getElementById('s5-bot-label');
+    const botEl    = document.getElementById('s5-bot');
+    const botLive  = document.getElementById('s5-bot-live');
+    const stepsEl  = document.getElementById('s5-steps');
+    const canvasEl = document.getElementById('s5-canvas');
+    const complete = document.getElementById('s5-complete');
+
+    function resetS5() {
+      seq.abort();
+      userEl.classList.remove('show');
+      botEl.classList.remove('show');
+      botLabel.style.opacity = '0';
+      userLive.textContent = '';
+      botLive.textContent = '';
+      stepsEl.innerHTML = '';
+      canvasEl.innerHTML = '';
+      complete.style.opacity = '0';
+      document.getElementById('s5-play').disabled = false;
+    }
+
+    document.getElementById('s5-play').addEventListener('click', function() {
+      this.disabled = true;
+      seq.run(async (guard) => {
+        // Show user message + type prompt
+        userEl.classList.add('show');
+        await guard(300);
+        await typeInto(userLive, 'Onboard a new loyalty member — we use Salesforce, Shopify, and Klaviyo');
+        await guard(500);
+
+        // Show bot label + message shell
+        botLabel.style.opacity = '1';
+        botEl.classList.add('show');
+        await guard(300);
+        await typeInto(botLive, 'Building your 7-step loyalty onboarding journey across Salesforce, Shopify, and Klaviyo…');
+        await guard(400);
+
+        // Stream build rows + canvas steps
+        for (const step of STEPS) {
+          const row = document.createElement('div');
+          row.className = 'build-row';
+          row.innerHTML = `<span class="build-dot"></span><span style="font-weight:600;color:var(--body);">${step.label}</span> <span style="color:var(--muted);">→ ${step.platform}</span>`;
+          stepsEl.appendChild(row);
+          await guard(40);
+          row.classList.add('show');
+
+          const card = document.createElement('div');
+          card.style.cssText = `display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fff;border:1px solid var(--gray-200);border-left:3px solid ${step.color};border-radius:8px;opacity:0;transform:translateX(8px);transition:all 0.3s ease;`;
+          card.innerHTML = `<div style="font-size:12px;font-weight:600;color:var(--text);">${step.label}</div><div style="font-size:11px;color:var(--muted);margin-left:auto;">${step.platform}</div>`;
+          canvasEl.appendChild(card);
+          await guard(60);
+          card.style.opacity = '1';
+          card.style.transform = 'translateX(0)';
+
+          // Mark previous build row done
+          if (stepsEl.children.length > 1) {
+            stepsEl.children[stepsEl.children.length - 2].classList.add('done');
+          }
+          await guard(320);
+        }
+        // Mark last row done
+        if (stepsEl.lastChild) stepsEl.lastChild.classList.add('done');
+        await guard(400);
+        complete.style.opacity = '1';
+      });
+    });
+
+    document.getElementById('s5-reset').addEventListener('click', resetS5);
+  })();
+
+  /* ─── Slide 6 · Data Pipeline + countUp animation ───────────────── */
+  (() => {
+    const seq = makeSequence();
+
+    function goLive(syncId) {
+      const el = document.getElementById(syncId);
+      el.classList.add('live');
+      el.innerHTML = '<span class="sync-dot"></span> Live';
+    }
+
+    function resetPipe() {
+      seq.abort();
+      ['s6-n1','s6-n2','s6-n3','s6-n4'].forEach(id => {
+        const n = document.getElementById(id);
+        n.classList.remove('active','highlight');
+      });
+      ['s6-l1','s6-l2','s6-l3'].forEach(id => {
+        document.getElementById(id).classList.remove('active');
+      });
+      ['s6-p1','s6-p2','s6-p3'].forEach(id => {
+        document.getElementById(id).classList.remove('flowing');
+      });
+      ['s6-sync1','s6-sync2','s6-sync3','s6-sync4'].forEach((id, i) => {
+        const el = document.getElementById(id);
+        el.classList.remove('live');
+        const labels = ['Waiting for sync','Idle','Idle','Standby'];
+        el.innerHTML = `<span class="sync-dot"></span> ${labels[i]}`;
+      });
+      ['s6-kpi1','s6-kpi2','s6-kpi3','s6-kpi4'].forEach(id => {
+        document.getElementById(id).textContent = '0';
+      });
+      document.getElementById('s6-kpi4').innerHTML = '0<span style="font-size:16px;">ms</span>';
+      document.getElementById('s6-stream').innerHTML = '';
+      document.getElementById('s6-play').disabled = false;
+    }
+
+    const events = [
+      { text: 'loyalty.member.created — ID 8821', cls: '' },
+      { text: 'profile.unified — 4 sources merged', cls: '' },
+      { text: 'journey.entry — Loyalty Onboarding', cls: '' },
+      { text: 'channel.email.sent — welcome', cls: '' },
+      { text: 'segment.matched — Gold Tier eligible', cls: '' },
+      { text: 'agent.action — VIP check complete', cls: '' },
+      { text: 'WARNING: push token missing', cls: 'stream-warn' },
+      { text: 'journey.step 6 — offer email queued', cls: '' },
+    ];
+
+    document.getElementById('s6-play').addEventListener('click', function() {
+      this.disabled = true;
+      seq.run(async (guard) => {
+        // Node 1 active
+        document.getElementById('s6-n1').classList.add('active');
+        goLive('s6-sync1');
+        await guard(600);
+
+        // Line 1 + packet
+        document.getElementById('s6-l1').classList.add('active');
+        document.getElementById('s6-p1').classList.add('flowing');
+        await guard(1400);
+
+        // Node 2
+        document.getElementById('s6-n2').classList.add('active');
+        goLive('s6-sync2');
+        document.getElementById('s6-p1').classList.remove('flowing');
+        await guard(600);
+
+        // Count up KPI 1
+        countUp(document.getElementById('s6-kpi1'), 142800, 1000);
+        await guard(800);
+
+        // Line 2 + packet
+        document.getElementById('s6-l2').classList.add('active');
+        document.getElementById('s6-p2').classList.add('flowing');
+        await guard(1400);
+
+        // Node 3
+        document.getElementById('s6-n3').classList.add('active');
+        goLive('s6-sync3');
+        document.getElementById('s6-p2').classList.remove('flowing');
+        await guard(600);
+
+        countUp(document.getElementById('s6-kpi2'), 47, 800);
+        await guard(700);
+
+        // Line 3 + packet (back — MuleSoft)
+        document.getElementById('s6-l3').classList.add('active');
+        document.getElementById('s6-p3').classList.add('flowing');
+        await guard(1400);
+
+        // Node 4
+        document.getElementById('s6-n4').classList.add('active');
+        goLive('s6-sync4');
+        document.getElementById('s6-p3').classList.remove('flowing');
+        await guard(600);
+
+        countUp(document.getElementById('s6-kpi3'), 3200, 900);
+        // Latency KPI (just type it)
+        const kpi4 = document.getElementById('s6-kpi4');
+        kpi4.innerHTML = '28<span style="font-size:16px;">ms</span>';
+
+        // Stream events
+        const list = document.getElementById('s6-stream');
+        for (const ev of events) {
+          streamItem(list, `<span class="sync-dot" style="background:${ev.cls ? 'var(--pink)' : 'var(--sf-blue-m)'};flex-shrink:0;margin-top:2px;"></span>${ev.text}`, 6);
+          await guard(600);
+        }
+
+        // Highlight all nodes
+        ['s6-n1','s6-n2','s6-n3','s6-n4'].forEach(id => {
+          document.getElementById(id).classList.add('highlight');
+        });
+      });
+    });
+
+    document.getElementById('s6-reset').addEventListener('click', resetPipe);
+  })();
+  </script>
+  <script src="feedback-widget.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,220 @@
+/* ─────────────────────────────────────────────────────────────────
+   Design Tokens — Salesforce Narrative System
+   ─────────────────────────────────────────────────────────────────
+   Source: Salesforce Brand Guidelines & Toolkits 2026
+   All hex values match the official Digital Color Palette exactly.
+   ───────────────────────────────────────────────────────────────── */
+
+/* ── Salesforce Sans ─────────────────────────────────────────── */
+@font-face {
+  font-family: 'Salesforce Sans';
+  font-weight: 100;
+  font-style: normal;
+  font-display: swap;
+  src: url('assets/fonts/SalesforceSans-Thin.woff2') format('woff2'),
+       url('assets/fonts/SalesforceSans-Thin.woff') format('woff');
+}
+@font-face {
+  font-family: 'Salesforce Sans';
+  font-weight: 100;
+  font-style: italic;
+  font-display: swap;
+  src: url('assets/fonts/SalesforceSans-ThinItalic.woff2') format('woff2'),
+       url('assets/fonts/SalesforceSans-ThinItalic.woff') format('woff');
+}
+@font-face {
+  font-family: 'Salesforce Sans';
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+  src: url('assets/fonts/SalesforceSans-Light.woff2') format('woff2'),
+       url('assets/fonts/SalesforceSans-Light.woff') format('woff');
+}
+@font-face {
+  font-family: 'Salesforce Sans';
+  font-weight: 300;
+  font-style: italic;
+  font-display: swap;
+  src: url('assets/fonts/SalesforceSans-LightItalic.woff2') format('woff2'),
+       url('assets/fonts/SalesforceSans-LightItalic.woff') format('woff');
+}
+@font-face {
+  font-family: 'Salesforce Sans';
+  font-weight: 350;
+  font-style: normal;
+  font-display: swap;
+  src: url('assets/fonts/SalesforceSans-Book.woff2') format('woff2'),
+       url('assets/fonts/SalesforceSans-Book.woff') format('woff');
+}
+@font-face {
+  font-family: 'Salesforce Sans';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('assets/fonts/SalesforceSans-Regular.woff2') format('woff2'),
+       url('assets/fonts/SalesforceSans-Regular.woff') format('woff');
+}
+@font-face {
+  font-family: 'Salesforce Sans';
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+  src: url('assets/fonts/SalesforceSans-Italic.woff2') format('woff2'),
+       url('assets/fonts/SalesforceSans-Italic.woff') format('woff');
+}
+@font-face {
+  font-family: 'Salesforce Sans';
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+  src: url('assets/fonts/SalesforceSans-Semibold.woff2') format('woff2'),
+       url('assets/fonts/SalesforceSans-Semibold.woff') format('woff');
+}
+@font-face {
+  font-family: 'Salesforce Sans';
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url('assets/fonts/SalesforceSans-Bold.woff2') format('woff2'),
+       url('assets/fonts/SalesforceSans-Bold.woff') format('woff');
+}
+@font-face {
+  font-family: 'Salesforce Sans';
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+  src: url('assets/fonts/SalesforceSans-BoldItalic.woff2') format('woff2'),
+       url('assets/fonts/SalesforceSans-BoldItalic.woff') format('woff');
+}
+
+/* ── Avant Garde For Salesforce ─────────────────────────────── */
+@font-face {
+  font-family: 'Avant Garde For Salesforce';
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+  src: url('assets/fonts/AvantGardeForSalesforceW05-Dm.woff2') format('woff2'),
+       url('assets/fonts/AvantGardeForSalesforceW05-Dm.woff') format('woff'),
+       url('assets/fonts/AvantGardeForSalesforce-Demi.ttf') format('truetype');
+}
+
+/* ── Trailhead ───────────────────────────────────────────────── */
+@font-face {
+  font-family: 'Trailhead';
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  src: url('assets/fonts/TrailheadMedium.otf') format('opentype');
+}
+@font-face {
+  font-family: 'Trailhead';
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url('assets/fonts/TrailheadBold.otf') format('opentype');
+}
+
+:root {
+  /* ── Primary blues (Electric Blue scale) ───────────────────── */
+  --sf-navy:    #001E5B;   /* Electric Blue 15 — deepest bg, section-navy */
+  --sf-blue:    #022AC0;   /* Electric Blue 30 — headings, eyebrows */
+  --sf-blue-m:  #066AFE;   /* Electric Blue 50 — mid accent */
+  --sf-blue-l:  #00B3FF;   /* Cloud Blue 68 — highlights, stat values */
+  --cloud-80:   #90D0FE;   /* Cloud Blue 80 — subtle tints */
+  --cloud-95:   #EAF5FE;   /* Cloud Blue 95 — section backgrounds */
+
+  /* ── Atmosphere gradients (official 2026 linear stops) ─────── */
+  /* Morning:  Cloud Blue 80 → Cloud Blue 95 */
+  --grad-morning: linear-gradient(180deg, #90D0FE 0%, #EAF5FE 100%);
+  /* Midday:   Cloud Blue 68 → Cloud Blue 80 → Cloud Blue 95 */
+  --grad-midday:  linear-gradient(180deg, #00B3FF 0%, #90D0FE 60%, #EAF5FE 100%);
+  /* Dusk:     Electric Blue 50 → Cloud Blue 68 → Cloud Blue 80 → Cloud Blue 95 */
+  --grad-dusk:    linear-gradient(180deg, #066AFE 0%, #00B3FF 40%, #90D0FE 75%, #EAF5FE 100%);
+  /* Evening:  Electric Blue 15 → Electric Blue 30 → Electric Blue 50 → Cloud Blue 68 */
+  --grad-evening: linear-gradient(180deg, #001E5B 0%, #022AC0 40%, #066AFE 75%, #00B3FF 100%);
+
+  /* ── Customer accent (override per page) ───────────────────── */
+  --accent:     #DA1710;   /* customer brand — red default, swap per deal */
+  --accent-l:   #FF4A3D;
+
+  /* ── Secondary palette (use at max 20% of total color area) ── */
+  /* Deep shades */
+  --teal-20:    #023434;   /* Teal 20 */
+  --yellow-20:  #4F2100;   /* Yellow 20 */
+  --pink-20:    #61022A;   /* Pink 20 */
+  --violet-20:  #481A54;   /* Violet 20 */
+  /* Core shades */
+  --teal:       #06A59A;   /* Teal 60 */
+  --yellow:     #E4A201;   /* Yellow 70 */
+  --pink-d:     #B60554;   /* Pink 40 */
+  --violet:     #730394;   /* Violet 30 */
+  /* Light shades */
+  --teal-l:     #04E1CB;   /* Teal 80 */
+  --yellow-l:   #FCC003;   /* Yellow 80 */
+  --pink:       #FF538A;   /* Pink 60 */
+  --violet-l:   #D17DFE;   /* Violet 65 */
+  /* Tint shades (95) */
+  --teal-95:    #DEF9F3;   /* Teal 95 */
+  --yellow-95:  #FBF3E0;   /* Yellow 95 */
+  --pink-95:    #FEF0F3;   /* Pink 95 */
+  --violet-95:  #F9F0FF;   /* Violet 95 */
+
+  /* ── Secondary gradients (vibrant — use sparingly, max 20% rule) */
+  /* Use to spark specific subjects or add energy to secondary moments */
+  --grad-teal:    linear-gradient(180deg, #06A59A 0%, #DEF9F3 100%);
+  --grad-yellow:  linear-gradient(180deg, #E4A201 0%, #FBF3E0 100%);
+  --grad-pink:    linear-gradient(180deg, #FF538A 0%, #FEF0F3 100%);
+  --grad-violet:  linear-gradient(180deg, #730394 0%, #F9F0FF 100%);
+
+  /* ── Semantic status aliases → map to 2026 secondary palette ── */
+  --green:      #06A59A;   /* = Teal 60 — positive/success states */
+  --amber:      #E4A201;   /* = Yellow 70 — warning states */
+  --indigo:     #730394;   /* = Violet 30 — informational states */
+
+  /* ── Neutrals ──────────────────────────────────────────────── */
+  --white:      #FFFFFF;
+  --off-white:  #EAF5FE;   /* = Cloud Blue 95 — section bg */
+  --gray-100:   #F3F3F3;
+  --gray-200:   #E5E5E5;
+  --gray-500:   #737479;
+  --gray-700:   #444447;
+
+  /* ── Semantic text ─────────────────────────────────────────── */
+  --text:       #001E5B;   /* = Electric Blue 15 — headings */
+  --body:       #181818;   /* near-black body copy */
+  --muted:      #5A5C61;   /* secondary copy */
+
+  /* ── Typography ────────────────────────────────────────────── */
+  --font-display: 'Avant Garde For Salesforce', 'Salesforce Sans', system-ui, -apple-system, sans-serif;
+  --font-body:    'Salesforce Sans', system-ui, -apple-system, BlinkMacSystemFont,
+                  'Segoe UI', 'Segoe UI Emoji', sans-serif;
+  --font-trailhead: 'Trailhead', 'Salesforce Sans', system-ui, sans-serif;
+
+  /* ── Radii ─────────────────────────────────────────────────── */
+  --radius-sm:  4px;
+  --radius-md:  8px;
+  --radius-lg:  8px;
+  --radius-xl:  16px;
+
+  /* ── Shadows ───────────────────────────────────────────────── */
+  --shadow-card:   0 2px 8px -2px rgba(24,24,24,0.08), 0 8px 12px -2px rgba(24,24,24,0.16);
+  --shadow-modal:  0 24px 48px -4px rgba(24,24,24,0.20);
+}
+
+/* ── Base reset + body ───────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--white);
+  color: var(--body);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+}
