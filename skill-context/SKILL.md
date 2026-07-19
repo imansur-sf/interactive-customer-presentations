@@ -61,7 +61,7 @@ Flag any missing file before proceeding.
 - No "but" or "however" in any body copy
 - Closing ends on outcome, not process
 - All `<img>` tags have descriptive `alt` attributes
-- Every deck's final slide attribution reads (two lines): `Created with SaaSy Solutions powered by Imran Mansur` on line 1, and `OG Decktools Architecture Built by <a href="https://www.linkedin.com/in/milestoolin/" target="_blank" rel="noopener">Miles Toolin</a>` on line 2 — never omit either line, never reword
+- Every deck's final slide attribution reads (two lines): `Created with <a href="https://imansur-sf.github.io/saasy-solutions/" target="_blank" rel="noopener">SaaSy Solutions</a> powered by <a href="https://www.linkedin.com/in/imansur/" target="_blank" rel="noopener">Imran Mansur</a>` on line 1, and `OG Decktools Architecture Built by <a href="https://www.linkedin.com/in/milestoolin/" target="_blank" rel="noopener">Miles Toolin</a>` on line 2 — never omit either line, never reword, and never strip the three links
 
 ## Step 4 — Feedback widget + GitHub repo
 
@@ -396,7 +396,7 @@ Work slide by slide in the order below. The canonical reference is `sf-composer.
 
 ### 12. Thank you / attribution slide
 
-- The two-line attribution `Created with SaaSy Solutions powered by Imran Mansur` followed by `OG Decktools Architecture Built by <a href="https://www.linkedin.com/in/milestoolin/" target="_blank" rel="noopener">Miles Toolin</a>` (joined with `<br/>`) is non-negotiable — never remove, never reword either line.
+- The two-line attribution `Created with <a href="https://imansur-sf.github.io/saasy-solutions/" target="_blank" rel="noopener">SaaSy Solutions</a> powered by <a href="https://www.linkedin.com/in/imansur/" target="_blank" rel="noopener">Imran Mansur</a>` followed by `OG Decktools Architecture Built by <a href="https://www.linkedin.com/in/milestoolin/" target="_blank" rel="noopener">Miles Toolin</a>` (joined with `<br/>`) is non-negotiable — never remove, never reword either line, and never strip the three links (SaaSy Solutions, Imran Mansur, Miles Toolin).
 - Cobrand pill: replace the `sf-composer.html` placeholder with the customer name exactly as given in interview question 1.
 - No other copy changes needed on this slide unless the user explicitly asks.
 
