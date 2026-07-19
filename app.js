@@ -17,7 +17,7 @@
 //   with the current slide's HTML and apply the returned patches.
 
 import { InterviewController } from './interview.js';
-import { callWorker, applyPatches, getWorkerUrl } from './llm.js';
+import { callWorker, applyPatches, getWorkerUrl, suggestAnswer } from './llm.js';
 
 const LS = {
   workerUrl: 'icp.workerUrl',
@@ -185,6 +185,13 @@ function startInterview() {
     onComplete: async (answers) => {
       state.answers = answers;
       await generateDeck(answers);
+    },
+    onSuggest: async (questionId, questionSchema, answersSoFar) => {
+      return await suggestAnswer({
+        questionId,
+        deckContext: { answers: answersSoFar },
+        questionSchema,
+      });
     },
   });
   state.interview.start();

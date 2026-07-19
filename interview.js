@@ -158,10 +158,11 @@ export const QUESTIONS = [
 ];
 
 export class InterviewController {
-  constructor({ container, onComplete, appendMessage }) {
+  constructor({ container, onComplete, appendMessage, onSuggest }) {
     this.container = container;   // the chat log element
     this.onComplete = onComplete; // called with the collected deckContext
     this.appendMessage = appendMessage;
+    this.onSuggest = onSuggest;   // (questionId, questionSchema, answersSoFar) → Promise<{values, rationale}>
     this.index = 0;
     this.answers = {};
   }
@@ -197,9 +198,7 @@ export class InterviewController {
     wrap.className = 'q-widget';
 
     const state = {};
-    const submitBtn = document.createElement('button');
-    submitBtn.className = 'q-submit';
-    submitBtn.textContent = this.index === QUESTIONS.length - 1 ? 'Generate deck →' : 'Next →';
+    const setters = {}; // field.key → (value) => void — used by Suggest
 
     q.fields.forEach((field) => {
       const fieldEl = document.createElement('div');
@@ -211,20 +210,38 @@ export class InterviewController {
         fieldEl.appendChild(lbl);
       }
 
-      const control = this.renderControl(field, (val) => { state[field.key] = val; validate(); });
-      fieldEl.appendChild(control);
+      const { el, setValue } = this.renderControl(field, (val) => { state[field.key] = val; validate(); });
+      setters[field.key] = setValue;
+      fieldEl.appendChild(el);
       wrap.appendChild(fieldEl);
     });
 
-    // Compound widgets (kpi-grid, beachheads) manage their own field.key
+    // Compound widgets seed state so their key exists in `state`
     const compound = q.fields.find((f) => f.type === 'kpi-grid' || f.type === 'beachheads');
     if (compound) {
-      state[compound.key] = compound.type === 'kpi-grid'
-        ? [{}, {}, {}, {}]
-        : [{}, {}];
+      state[compound.key] = compound.type === 'kpi-grid' ? [{}, {}, {}, {}] : [{}, {}];
     }
 
-    // Validate before enabling submit
+    // Actions row: Suggest (left) + Submit (right)
+    const actions = document.createElement('div');
+    actions.className = 'q-actions';
+
+    const suggestBtn = document.createElement('button');
+    suggestBtn.type = 'button';
+    suggestBtn.className = 'q-suggest';
+    suggestBtn.innerHTML = '<span class="sparkle">✨</span> Suggest an answer';
+    suggestBtn.title = 'Ask the AI to fill this question for you based on what it knows so far.';
+
+    const submitBtn = document.createElement('button');
+    submitBtn.type = 'button';
+    submitBtn.className = 'q-submit';
+    submitBtn.textContent = this.index === QUESTIONS.length - 1 ? 'Generate deck →' : 'Next →';
+
+    actions.appendChild(suggestBtn);
+    actions.appendChild(submitBtn);
+    wrap.appendChild(actions);
+
+    // Validate required fields
     const validate = () => {
       let ok = true;
       for (const f of q.fields) {
@@ -234,43 +251,69 @@ export class InterviewController {
         if (typeof v === 'string' && !v.trim()) { ok = false; break; }
         if (Array.isArray(v)) {
           if (v.length === 0) { ok = false; break; }
-          if (f.type === 'kpi-grid') {
-            if (!v.every((r) => r.value && r.label)) { ok = false; break; }
-          }
-          if (f.type === 'beachheads') {
-            if (!v.every((r) => r.title && r.before && r.after)) { ok = false; break; }
-          }
+          if (f.type === 'kpi-grid' && !v.every((r) => r.value && r.label)) { ok = false; break; }
+          if (f.type === 'beachheads' && !v.every((r) => r.title && r.before && r.after)) { ok = false; break; }
         }
       }
       submitBtn.disabled = !ok;
     };
     validate();
 
+    // Suggest button — ask the LLM to fill this question
+    suggestBtn.addEventListener('click', async () => {
+      if (!this.onSuggest) return;
+      const prev = suggestBtn.innerHTML;
+      suggestBtn.disabled = true;
+      suggestBtn.innerHTML = '<span class="spinner"></span>Suggesting…';
+      try {
+        const { values = {}, rationale } = await this.onSuggest(q.id, q, this.answers);
+        // Apply suggested values via each field's setter
+        for (const [key, val] of Object.entries(values)) {
+          const set = setters[key];
+          if (set) set(val);
+        }
+        // Flash-highlight the filled inputs for visual feedback
+        wrap.querySelectorAll('.q-input, .q-textarea, .q-chip.selected').forEach((el) => {
+          el.classList.add('flash');
+          setTimeout(() => el.classList.remove('flash'), 900);
+        });
+        if (rationale) this.appendMessage('assistant', `✨ ${rationale}`);
+      } catch (err) {
+        console.error('suggest failed', err);
+        this.appendMessage('assistant', `⚠️ Couldn't generate a suggestion: ${err.userMessage || err.message}`);
+      } finally {
+        suggestBtn.disabled = false;
+        suggestBtn.innerHTML = prev;
+      }
+    });
+
+    // Submit — advance to next question
     submitBtn.addEventListener('click', () => {
-      // Echo the answer as a user message (compact rendering)
       this.appendMessage('user', summariseAnswer(q, state));
-      // Store and advance
       Object.assign(this.answers, state);
-      // Freeze this widget
       wrap.querySelectorAll('input, textarea, button').forEach((el) => el.disabled = true);
       wrap.style.opacity = '0.6';
-
       this.index++;
       this.renderQuestion();
     });
 
-    wrap.appendChild(submitBtn);
     return wrap;
   }
 
+  // Every renderControl branch returns { el, setValue }. The setValue takes
+  // the same shape as the emitted value and updates the DOM + internal state
+  // to match — used by the Suggest button.
   renderControl(field, onChange) {
     if (field.type === 'text' || field.type === 'hex') {
       const input = document.createElement('input');
-      input.type = field.type === 'hex' ? 'text' : 'text';
+      input.type = 'text';
       input.placeholder = field.placeholder || '';
       input.className = 'q-input';
       input.addEventListener('input', () => onChange(input.value));
-      return input;
+      return {
+        el: input,
+        setValue: (val) => { input.value = String(val ?? ''); onChange(input.value); },
+      };
     }
     if (field.type === 'textarea') {
       const t = document.createElement('textarea');
@@ -278,50 +321,24 @@ export class InterviewController {
       t.placeholder = field.placeholder || '';
       t.className = 'q-textarea';
       t.addEventListener('input', () => onChange(t.value));
-      return t;
+      return {
+        el: t,
+        setValue: (val) => { t.value = String(val ?? ''); onChange(t.value); },
+      };
     }
     if (field.type === 'radio') {
-      const g = document.createElement('div');
-      g.className = 'q-chips';
-      field.options.forEach((opt) => {
-        const chip = document.createElement('button');
-        chip.type = 'button';
-        chip.className = 'q-chip';
-        chip.textContent = opt;
-        chip.addEventListener('click', () => {
-          g.querySelectorAll('.q-chip').forEach((c) => c.classList.remove('selected'));
-          chip.classList.add('selected');
-          onChange(opt);
-        });
-        g.appendChild(chip);
-      });
-      return g;
+      return renderChoiceControl(field, 'single', onChange);
     }
     if (field.type === 'multiselect') {
-      const g = document.createElement('div');
-      g.className = 'q-chips';
-      const selected = new Set();
-      field.options.forEach((opt) => {
-        const chip = document.createElement('button');
-        chip.type = 'button';
-        chip.className = 'q-chip';
-        chip.textContent = opt;
-        chip.addEventListener('click', () => {
-          if (selected.has(opt)) { selected.delete(opt); chip.classList.remove('selected'); }
-          else { selected.add(opt); chip.classList.add('selected'); }
-          onChange(Array.from(selected));
-        });
-        g.appendChild(chip);
-      });
-      onChange([]); // initial empty
-      return g;
+      return renderChoiceControl(field, 'multi', onChange);
     }
     if (field.type === 'kpi-grid') {
       const g = document.createElement('div');
       g.className = 'q-kpi-grid';
       const rows = [{}, {}, {}, {}];
       const framings = ['Reduce', 'Reduce', 'Improve', 'Improve'];
-      rows.forEach((r, i) => {
+      const inputRefs = [];
+      rows.forEach((_, i) => {
         const row = document.createElement('div');
         row.className = 'q-kpi-row';
         row.innerHTML = `
@@ -331,6 +348,7 @@ export class InterviewController {
           <input type="text" class="q-input q-kpi-label" placeholder="reduction in onboarding time" />
         `;
         const [valEl, unitEl, labelEl] = row.querySelectorAll('input');
+        inputRefs.push({ valEl, unitEl, labelEl });
         const emit = () => {
           rows[i] = { value: valEl.value, unit: unitEl.value, label: labelEl.value, framing: framings[i] };
           onChange([...rows]);
@@ -340,12 +358,27 @@ export class InterviewController {
         labelEl.addEventListener('input', emit);
         g.appendChild(row);
       });
-      return g;
+      return {
+        el: g,
+        setValue: (arr) => {
+          if (!Array.isArray(arr)) return;
+          arr.slice(0, 4).forEach((row, i) => {
+            if (!row) return;
+            const { valEl, unitEl, labelEl } = inputRefs[i];
+            valEl.value = String(row.value ?? '');
+            unitEl.value = String(row.unit ?? '');
+            labelEl.value = String(row.label ?? '');
+            rows[i] = { value: valEl.value, unit: unitEl.value, label: labelEl.value, framing: framings[i] };
+          });
+          onChange([...rows]);
+        },
+      };
     }
     if (field.type === 'beachheads') {
       const g = document.createElement('div');
       g.className = 'q-beachheads';
       const rows = [{}, {}];
+      const inputRefs = [];
       rows.forEach((_, i) => {
         const row = document.createElement('div');
         row.className = 'q-bh-row';
@@ -357,6 +390,9 @@ export class InterviewController {
           <textarea class="q-textarea" placeholder="After (outcome)" rows="2" data-k="after"></textarea>
         `;
         const inputs = row.querySelectorAll('[data-k]');
+        const byKey = {};
+        inputs.forEach((el) => byKey[el.dataset.k] = el);
+        inputRefs.push(byKey);
         const emit = () => {
           const obj = {};
           inputs.forEach((el) => obj[el.dataset.k] = el.value);
@@ -366,18 +402,185 @@ export class InterviewController {
         inputs.forEach((el) => el.addEventListener('input', emit));
         g.appendChild(row);
       });
-      return g;
+      return {
+        el: g,
+        setValue: (arr) => {
+          if (!Array.isArray(arr)) return;
+          arr.slice(0, 2).forEach((row, i) => {
+            if (!row) return;
+            const refs = inputRefs[i];
+            ['title', 'ttv', 'before', 'after'].forEach((k) => {
+              if (refs[k] && row[k] != null) refs[k].value = String(row[k]);
+            });
+            const obj = {};
+            Object.entries(refs).forEach(([k, el]) => obj[k] = el.value);
+            rows[i] = obj;
+          });
+          onChange([...rows]);
+        },
+      };
     }
     // Fallback
     const span = document.createElement('span');
     span.textContent = `[unsupported: ${field.type}]`;
-    return span;
+    return { el: span, setValue: () => {} };
   }
 
   finish() {
     this.appendMessage('assistant', "Perfect — I've got everything I need. Generating the deck now…");
     this.onComplete(this.answers);
   }
+}
+
+// ------------------------------------------------------------------ Choice control
+//
+// Renders a chip group for radio ('single') or multiselect ('multi'). Adds an
+// "Other…" chip that reveals a free-form input so users can supply a response
+// not covered by the preset options.
+//
+//  single:  answer is the selected option string, OR the trimmed Other-input value
+//  multi:   answer is an array of selected option strings + comma-split Other tokens
+function renderChoiceControl(field, mode, onChange) {
+  const wrap = document.createElement('div');
+  wrap.className = 'q-choice';
+
+  const chipRow = document.createElement('div');
+  chipRow.className = 'q-chips';
+  wrap.appendChild(chipRow);
+
+  const otherRow = document.createElement('div');
+  otherRow.className = 'q-other-row';
+  const otherInput = document.createElement('input');
+  otherInput.type = 'text';
+  otherInput.className = 'q-input q-other-input';
+  otherInput.placeholder = mode === 'multi'
+    ? 'Type your own — separate multiple with commas'
+    : 'Type your own answer…';
+  otherRow.appendChild(otherInput);
+  wrap.appendChild(otherRow);
+
+  const selected = new Set();      // preset options selected
+  let otherActive = false;         // is Other chip toggled on?
+  let otherValue = '';             // free-form value
+
+  const OPTIONS = [...field.options, '__OTHER__'];
+
+  const chipRefs = new Map();
+
+  function emit() {
+    if (mode === 'single') {
+      if (otherActive) {
+        const val = otherValue.trim();
+        onChange(val || null);
+      } else {
+        const first = selected.values().next().value;
+        onChange(first ?? null);
+      }
+    } else {
+      const base = Array.from(selected);
+      if (otherActive) {
+        const tokens = otherValue.split(',').map((s) => s.trim()).filter(Boolean);
+        onChange([...base, ...tokens]);
+      } else {
+        onChange(base);
+      }
+    }
+  }
+
+  OPTIONS.forEach((opt) => {
+    const isOther = opt === '__OTHER__';
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'q-chip';
+    if (isOther) chip.classList.add('q-chip-other');
+    chip.textContent = isOther ? 'Other…' : opt;
+    chip.addEventListener('click', () => {
+      if (isOther) {
+        otherActive = !otherActive;
+        chip.classList.toggle('selected', otherActive);
+        otherRow.classList.toggle('visible', otherActive);
+        if (mode === 'single' && otherActive) {
+          // Single-select: choosing Other clears other selections
+          selected.clear();
+          chipRefs.forEach((c) => c.classList.remove('selected'));
+          chip.classList.add('selected');
+        }
+        if (otherActive) otherInput.focus();
+        emit();
+      } else {
+        if (mode === 'single') {
+          selected.clear();
+          chipRefs.forEach((c) => c.classList.remove('selected'));
+          otherActive = false;
+          chipRefs.get('__OTHER__')?.classList.remove('selected');
+          otherRow.classList.remove('visible');
+          selected.add(opt);
+          chip.classList.add('selected');
+        } else {
+          if (selected.has(opt)) { selected.delete(opt); chip.classList.remove('selected'); }
+          else { selected.add(opt); chip.classList.add('selected'); }
+        }
+        emit();
+      }
+    });
+    chipRefs.set(opt, chip);
+    chipRow.appendChild(chip);
+  });
+
+  otherInput.addEventListener('input', () => { otherValue = otherInput.value; emit(); });
+
+  // Seed initial value for multi (empty array) so validation has something to check
+  if (mode === 'multi') onChange([]);
+
+  return {
+    el: wrap,
+    setValue: (val) => {
+      // Suggest may return: for single → a string (may or may not be in options)
+      //                    for multi  → an array of strings (may contain non-option values)
+      selected.clear();
+      chipRefs.forEach((c) => c.classList.remove('selected'));
+      otherActive = false;
+      otherValue = '';
+      otherInput.value = '';
+      otherRow.classList.remove('visible');
+      chipRefs.get('__OTHER__')?.classList.remove('selected');
+
+      if (mode === 'single') {
+        if (typeof val !== 'string' || !val.trim()) { emit(); return; }
+        if (field.options.includes(val)) {
+          selected.add(val);
+          chipRefs.get(val)?.classList.add('selected');
+        } else {
+          otherActive = true;
+          otherValue = val;
+          otherInput.value = val;
+          chipRefs.get('__OTHER__')?.classList.add('selected');
+          otherRow.classList.add('visible');
+        }
+        emit();
+      } else {
+        const arr = Array.isArray(val) ? val : [];
+        const custom = [];
+        arr.forEach((v) => {
+          if (typeof v !== 'string' || !v.trim()) return;
+          if (field.options.includes(v)) {
+            selected.add(v);
+            chipRefs.get(v)?.classList.add('selected');
+          } else {
+            custom.push(v);
+          }
+        });
+        if (custom.length) {
+          otherActive = true;
+          otherValue = custom.join(', ');
+          otherInput.value = otherValue;
+          chipRefs.get('__OTHER__')?.classList.add('selected');
+          otherRow.classList.add('visible');
+        }
+        emit();
+      }
+    },
+  };
 }
 
 // ------------------------------------------------------------------ helpers

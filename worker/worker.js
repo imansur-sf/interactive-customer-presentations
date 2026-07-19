@@ -123,7 +123,7 @@ async function handleLLM(body, request, env) {
 
   const modelId = MODELS[model] || MODELS[DEFAULT_MODEL];
   const systemBlocks = buildSystemBlocks();
-  const { userPrompt, tool } = buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext });
+  const { userPrompt, tool } = buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, questionSchema: body.questionSchema });
 
   const payload = {
     model: modelId,
@@ -292,7 +292,54 @@ function buildSystemBlocks() {
 //                     slides that answer maps to per the Canvas Build Guide in SKILL.md.
 //   turn = 'edit'   — user is editing a specific slide with a free-form request.
 //                     Apply the edit, preserving all brand rules.
-function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext }) {
+function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, questionSchema }) {
+  // -------- Suggest turn: propose an answer to a single interview question --------
+  if (turn === 'suggest') {
+    const suggestSchema = {
+      type: 'object',
+      required: ['values', 'rationale'],
+      properties: {
+        values: {
+          type: 'object',
+          description: 'Field key → value map. For radio: one of the options (or a free-form string if none fit). For multiselect: an array of strings. For text/textarea: a string. For kpi-grid: array of {value, unit, label, framing}. For beachheads: array of {title, before, after, ttv}. Keys must match the field keys in the incoming questionSchema.',
+          additionalProperties: true,
+        },
+        rationale: {
+          type: 'string',
+          description: 'One-sentence explanation of the suggestion, shown to the user in the chat.',
+        },
+      },
+    };
+    const tool = {
+      name: 'suggest_answer',
+      description: 'Propose a filled-in answer for the current interview question, based on the answers collected so far.',
+      input_schema: suggestSchema,
+    };
+    const userPrompt = [
+      `The user wants an AI-generated suggestion for interview question "${questionId}". Fill the fields below based on the answers collected so far and the deck rules in SKILL.md / STYLE-GUIDE.md.`,
+      '',
+      'Question schema (what fields to fill and their constraints):',
+      '```json',
+      JSON.stringify(questionSchema || {}, null, 2),
+      '```',
+      '',
+      'Previous interview answers (deckContext):',
+      '```json',
+      JSON.stringify(deckContext || {}, null, 2),
+      '```',
+      '',
+      'Rules:',
+      '- If a field has fixed options, prefer one of those unless none fit — in which case return a concise free-form value that stays true to the intent.',
+      '- Enforce every copy-length cap and voice rule from STYLE-GUIDE.md (no "but"/"however", parallel structure, ≤6-word titles, etc.).',
+      '- For KPI grids: use whole integers, respect the Reduce/Improve framing, keep labels ≤10 words each.',
+      '- For beachheads: bc-title ≤6 words, before/after ≤15 words each.',
+      '- If prior answers are sparse, make reasonable industry-appropriate assumptions rather than returning empty values.',
+      'Return the suggestion via the `suggest_answer` tool.',
+    ].join('\n');
+    return { userPrompt, tool };
+  }
+
+  // -------- Answer / Edit turns: return DOM patches --------
   const patchSchema = {
     type: 'object',
     required: ['patches', 'message'],

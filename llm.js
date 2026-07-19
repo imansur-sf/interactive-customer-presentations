@@ -23,6 +23,21 @@ export function getApiKey() {
 }
 
 /**
+ * Ask the Worker to generate a suggested answer for an interview question.
+ * Returns { values, rationale } — the client applies `values` to the fields.
+ */
+export async function suggestAnswer({ questionId, deckContext, questionSchema }) {
+  return callWorker({
+    turn: 'suggest',
+    questionId,
+    userMessage: 'Generate a suggested answer for this question.',
+    deckContext,
+    questionSchema,
+    model: 'sonnet', // cheaper for one-off suggestions
+  });
+}
+
+/**
  * Call the Worker. Throws on network/HTTP error; returns the parsed JSON body
  * ({ patches, message, next_question?, _meta }) on success.
  */
