@@ -10,7 +10,7 @@
 // user with an SF gateway key must be on VPN.
 
 export const DEFAULT_WORKER_URL = 'https://icp-decktools-llm.imansur.workers.dev';
-export const SF_GATEWAY_URL = 'https://eng-ai-model-gateway.sfproxy.devx-preprod.aws-esvc1-useast2.aws.sfdc.cl/chat/completions';
+export const SF_GATEWAY_URL = 'https://eng-ai-model-gateway.sfproxy.devx-preprod.aws-esvc1-useast2.aws.sfdc.cl/v1/chat/completions';
 
 const LS = {
   workerUrl: 'icp.workerUrl',

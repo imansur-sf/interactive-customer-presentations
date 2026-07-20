@@ -316,7 +316,7 @@ function resolveProvider(byokKey, env) {
     if (env.LLM_GATEWAY_URL) {
       return {
         provider: 'llm-gateway',
-        endpoint: joinUrl(env.LLM_GATEWAY_URL, '/chat/completions'),
+        endpoint: joinUrl(env.LLM_GATEWAY_URL, '/v1/chat/completions'),
         apiKey: byokKey,
       };
     }
@@ -332,7 +332,7 @@ function resolveProvider(byokKey, env) {
   if (env.LLM_GATEWAY_URL && env.LLM_GATEWAY_KEY) {
     return {
       provider: 'llm-gateway',
-      endpoint: joinUrl(env.LLM_GATEWAY_URL, '/chat/completions'),
+      endpoint: joinUrl(env.LLM_GATEWAY_URL, '/v1/chat/completions'),
       apiKey: env.LLM_GATEWAY_KEY,
     };
   }
