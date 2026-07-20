@@ -101,37 +101,39 @@ export default {
     }
 
     if (url.pathname === '/debug/reach' && request.method === 'GET') {
-      // Diagnose whether the Worker can reach the LLM Gateway from Cloudflare's
-      // public network. Reports DNS/TCP/TLS/HTTP outcome without ever printing
-      // the key. Useful to distinguish "unreachable" from "auth failed".
+      // Diagnose whether the Worker can reach the LLM Gateway. Includes a real
+      // POST to /v1/chat/completions (matches how LPG's worker actually calls
+      // it) — GETs to LiteLLM proxies often just hang since they expect POST.
       const target = env.LLM_GATEWAY_URL || '';
       if (!target) return json({ error: 'LLM_GATEWAY_URL not set' }, { status: 400, request, env });
+      const base = target.replace(/\/+$/, '');
+      const authHeader = { 'Authorization': `Bearer ${env.LLM_GATEWAY_KEY || 'unset'}` };
+      const jsonHeaders = { ...authHeader, 'content-type': 'application/json' };
       const probes = [
-        { name: 'GET base',           method: 'GET',  path: '' },
-        { name: 'GET /chat/completions', method: 'GET',  path: '/chat/completions' },
+        {
+          name: 'POST /v1/chat/completions (real body)',
+          init: {
+            method: 'POST',
+            headers: jsonHeaders,
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-5-20250929',
+              max_tokens: 10,
+              messages: [{ role: 'user', content: 'ping' }],
+            }),
+          },
+          path: '/v1/chat/completions',
+        },
+        { name: 'GET base', init: { method: 'GET', headers: authHeader }, path: '' },
       ];
       const results = [];
       for (const p of probes) {
         const t0 = Date.now();
         try {
-          const r = await fetch(target.replace(/\/+$/, '') + p.path, {
-            method: p.method,
-            headers: { 'Authorization': `Bearer ${env.LLM_GATEWAY_KEY || 'unset'}` },
-            signal: AbortSignal.timeout(10000),
-          });
-          const bodyPreview = (await r.text()).slice(0, 200);
-          results.push({
-            probe: p.name,
-            elapsedMs: Date.now() - t0,
-            status: r.status,
-            bodyPreview,
-          });
+          const r = await fetch(base + p.path, { ...p.init, signal: AbortSignal.timeout(20000) });
+          const bodyPreview = (await r.text()).slice(0, 300);
+          results.push({ probe: p.name, elapsedMs: Date.now() - t0, status: r.status, bodyPreview });
         } catch (err) {
-          results.push({
-            probe: p.name,
-            elapsedMs: Date.now() - t0,
-            error: `${err.name}: ${err.message}`,
-          });
+          results.push({ probe: p.name, elapsedMs: Date.now() - t0, error: `${err.name}: ${err.message}` });
         }
       }
       return json({ target, results }, { request, env });
