@@ -181,7 +181,7 @@ export class InterviewController {
     const msg = document.createElement('div');
     msg.className = 'msg assistant';
     msg.innerHTML = `
-      <div class="msg-label">Decktools · ${this.index + 1} of ${QUESTIONS.length}</div>
+      <div class="msg-label">Imran AI · ${this.index + 1} of ${QUESTIONS.length}</div>
       <div class="q-prompt">${escapeHtml(q.prompt)}</div>
       ${q.help ? `<div class="q-help">${escapeHtml(q.help)}</div>` : ''}
     `;

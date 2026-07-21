@@ -336,7 +336,7 @@ function appendMessage(role, text) {
   const log = document.getElementById('chat-log');
   const div = document.createElement('div');
   div.className = `msg ${role}`;
-  const label = role === 'user' ? 'You' : 'Decktools';
+  const label = role === 'user' ? 'You' : 'Imran AI';
   div.innerHTML = `<div class="msg-label">${label}</div>${escapeHtml(text)}`;
   log.appendChild(div);
   log.scrollTop = log.scrollHeight;
@@ -353,7 +353,7 @@ function setBusy(busy, label) {
     const div = document.createElement('div');
     div.id = 'busy-msg';
     div.className = 'msg assistant';
-    div.innerHTML = `<div class="msg-label">Decktools</div><span class="spinner"></span>${escapeHtml(label || 'Working…')}`;
+    div.innerHTML = `<div class="msg-label">Imran AI</div><span class="spinner"></span>${escapeHtml(label || 'Working…')}`;
     log.appendChild(div);
     log.scrollTop = log.scrollHeight;
   } else {
