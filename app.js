@@ -17,7 +17,7 @@
 //   with the current slide's HTML and apply the returned patches.
 
 import { InterviewController } from './interview.js';
-import { callLLM, applyPatches, getWorkerUrl, suggestAnswer, detectRoute } from './llm.js';
+import { callLLM, applyPatches, getWorkerUrl, suggestAnswer } from './llm.js';
 
 const LS = {
   workerUrl: 'icp.workerUrl',
@@ -26,7 +26,7 @@ const LS = {
   sessionId: 'icp.sessionId',
 };
 
-const BYOK_TRIGGER_CODES = ['worker_unreachable', 'gemini_worker_unreachable', 'no_api_key'];
+const BYOK_TRIGGER_CODES = ['worker_unreachable', 'no_api_key'];
 
 function isByokTrigger(err) {
   return !!err && (BYOK_TRIGGER_CODES.includes(err.code) || err.status === 401);
