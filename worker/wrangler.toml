@@ -1,22 +1,12 @@
-name = "icp-decktools-llm"
+name = "icp-imranai-llm"
 main = "worker.js"
 compatibility_date = "2026-01-15"
 
-# Bundle skill-context markdown + reference HTML as text modules so we can
-# import them directly in worker.js. These become the LLM system prompt.
-[[rules]]
-type = "Text"
-globs = ["**/*.md", "**/*.html"]
-fallthrough = true
-
-# Auth secrets — set with `wrangler secret put <NAME>`:
-#
-#   Primary path (SF LLM Gateway Express, OpenAI-compat /chat/completions):
-#     LLM_GATEWAY_URL    base URL (no trailing slash; the Worker appends /chat/completions)
-#     LLM_GATEWAY_KEY    the SF-issued API key
-#
-#   Alternate path (Anthropic direct /v1/messages):
-#     ANTHROPIC_API_KEY  used when the gateway pair isn't set
+# This Worker only proxies analytics tracking (POST /imranAI/track) and a
+# liveness check (GET /health). LLM calls used to be proxied through
+# /imranAI/llm, but that path — and the skill-context Text-module bundling it
+# relied on — was removed once the app moved to direct browser-to-SF-LLM-Gateway
+# calls (BYOK). The Worker no longer holds or uses any LLM provider secrets.
 #
 #   CORS (optional):
 #     ALLOWED_ORIGINS    comma-separated origins; defaults to *
