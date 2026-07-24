@@ -681,18 +681,13 @@
   <div class="modal-backdrop" id="settings-modal">
     <div class="modal">
       <h2>Settings</h2>
-      <p class="sub">Configure the LLM endpoint. Your key never leaves this browser.</p>
+      <p class="sub">Paste your SF LLM Gateway Express key. Your key stays in this browser.</p>
 
-      <label for="setting-worker-url">Worker URL (optional override)</label>
-      <input type="text" id="setting-worker-url" placeholder="Default: https://icp-imranai-llm.imansur.workers.dev" />
-      <div class="hint">The default Worker already has a server-held API key. Only override this if you're running your own fork of the Worker.</div>
-
-      <label for="setting-api-key">API key</label>
-      <input type="password" id="setting-api-key" placeholder="Paste SF LLM Gateway key or sk-ant-…" spellcheck="false" autocomplete="off" />
+      <label for="setting-api-key">SF LLM Gateway key (BYOK)</label>
+      <input type="password" id="setting-api-key" placeholder="Paste your SF LLM Gateway Express key" spellcheck="false" autocomplete="off" />
       <div class="hint">
-        Salesforce employees on VPN: paste your <strong>SF LLM Gateway Express</strong> key — calls go directly from this browser to the gateway.<br/>
-        External users: paste an <strong>sk-ant-…</strong> Anthropic key — routed via the Cloudflare Worker.<br/>
-        Leave blank to use the Worker's server-held key (if configured). Your key is stored in this browser's localStorage only — never sent anywhere except the LLM provider.
+        Requires the <strong>Salesforce VPN</strong>. Calls go directly from this browser to the SF LLM Gateway — there is no server proxy in the LLM path.<br/>
+        Your key is stored in this browser's localStorage only. It never leaves your machine except to authenticate the direct gateway call.
       </div>
 
       <div class="actions">
