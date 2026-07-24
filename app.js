@@ -8,7 +8,7 @@
 //
 // Interview → Deck generation:
 //   InterviewController walks Q1–Q16 with rich widgets. On completion, we send
-//   the full deckContext to /decktools/llm with turn:'generate' and apply the
+//   the full deckContext to /imranAI/llm with turn:'generate' and apply the
 //   returned patches to deckDoc — one big rewrite of the reference deck into
 //   the customer's deck.
 //
@@ -22,8 +22,52 @@ import { callLLM, applyPatches, getWorkerUrl, suggestAnswer, detectRoute } from 
 const LS = {
   workerUrl: 'icp.workerUrl',
   apiKey: 'icp.apiKey',
+  byokKey: 'icp.byokKey',
   sessionId: 'icp.sessionId',
 };
+
+const BYOK_TRIGGER_CODES = ['worker_unreachable', 'gemini_worker_unreachable', 'no_api_key'];
+
+function isByokTrigger(err) {
+  return !!err && (BYOK_TRIGGER_CODES.includes(err.code) || err.status === 401);
+}
+
+function showByokOnboarding(err, retryFn) {
+  const modal = document.getElementById('byok-modal');
+  const detail = document.getElementById('byok-error-detail');
+  const keyInput = document.getElementById('byok-key-input');
+  const saveBtn = document.getElementById('byok-save');
+  const cancelBtn = document.getElementById('byok-cancel');
+
+  if (err && err.userMessage) {
+    detail.textContent = err.userMessage;
+    detail.style.display = '';
+  } else {
+    detail.textContent = '';
+    detail.style.display = 'none';
+  }
+
+  const close = () => {
+    modal.classList.remove('visible');
+    modal.hidden = true;
+  };
+
+  saveBtn.onclick = () => {
+    const key = keyInput.value.trim();
+    if (!key) return;
+    localStorage.setItem(LS.byokKey, key);
+    keyInput.value = '';
+    close();
+    if (retryFn) retryFn();
+  };
+  cancelBtn.onclick = () => close();
+  modal.onclick = (e) => { if (e.target === modal) close(); };
+
+  keyInput.value = '';
+  modal.hidden = false;
+  modal.classList.add('visible');
+  keyInput.focus();
+}
 
 const SLIDE_LABEL_OVERRIDES = { 0: 'Hero', 11: 'Attribution' };
 
@@ -187,11 +231,18 @@ function startInterview() {
       await generateDeck(answers);
     },
     onSuggest: async (questionId, questionSchema, answersSoFar) => {
-      return await suggestAnswer({
-        questionId,
-        deckContext: { answers: answersSoFar },
-        questionSchema,
-      });
+      try {
+        return await suggestAnswer({
+          questionId,
+          deckContext: { answers: answersSoFar },
+          questionSchema,
+        });
+      } catch (err) {
+        if (isByokTrigger(err)) {
+          showByokOnboarding(err, null);
+        }
+        throw err;
+      }
     },
   });
   state.interview.start();
@@ -236,7 +287,11 @@ async function generateDeck(answers) {
     appendMessage('assistant', 'Click any slide on the right to refine it — I can rewrite copy, swap the accent, tighten the hero, whatever you need.');
   } catch (err) {
     console.error(err);
-    appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
+    if (isByokTrigger(err)) {
+      showByokOnboarding(err, () => generateDeck(answers));
+    } else {
+      appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
+    }
   } finally {
     setBusy(false);
   }
@@ -271,7 +326,11 @@ async function sendScopedEdit(text) {
     if (skipped.length) console.warn('skipped patches', skipped);
   } catch (err) {
     console.error(err);
-    appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
+    if (isByokTrigger(err)) {
+      showByokOnboarding(err, () => sendScopedEdit(text));
+    } else {
+      appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
+    }
   } finally {
     setBusy(false);
   }
@@ -417,7 +476,7 @@ function wireTopbar() {
 function fireTrackerEvent(payload) {
   const workerUrl = getWorkerUrlSafe();
   if (!workerUrl) return;
-  const url = workerUrl.replace(/\/+$/, '') + '/decktools/track';
+  const url = workerUrl.replace(/\/+$/, '') + '/imranAI/track';
   fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

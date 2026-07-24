@@ -682,7 +682,7 @@
       <p class="sub">Configure the LLM endpoint. Your key never leaves this browser.</p>
 
       <label for="setting-worker-url">Worker URL (optional override)</label>
-      <input type="text" id="setting-worker-url" placeholder="Default: https://icp-decktools-llm.imansur.workers.dev" />
+      <input type="text" id="setting-worker-url" placeholder="Default: https://icp-imranai-llm.imansur.workers.dev" />
       <div class="hint">The default Worker already has a server-held API key. Only override this if you're running your own fork of the Worker.</div>
 
       <label for="setting-api-key">API key</label>
@@ -696,6 +696,30 @@
       <div class="actions">
         <button class="cancel" id="settings-cancel">Cancel</button>
         <button class="save" id="settings-save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- BYOK onboarding modal -->
+  <div class="modal-backdrop" id="byok-modal" hidden>
+    <div class="modal">
+      <h2>Connect your LLM Gateway API key</h2>
+      <p class="sub">The AI call failed because no valid key is available. To enable AI features:</p>
+
+      <ol class="hint" style="padding-left: 18px; margin: 0 0 12px;">
+        <li>Visit the gateway at <a href="https://eng-ai-model-gateway.sfproxy.devx-preprod.aws-esvc1-useast2.aws.sfdc.cl" target="_blank" rel="noopener">eng-ai-model-gateway.sfproxy.devx-preprod.aws-esvc1-useast2.aws.sfdc.cl</a></li>
+        <li>Provision an API key</li>
+        <li>Paste the key below to enable AI features</li>
+      </ol>
+
+      <div id="byok-error-detail" class="hint" style="display:none; border-left: 2px solid rgba(0,30,91,0.15); padding-left: 8px; margin-bottom: 12px;"></div>
+
+      <label for="byok-key-input">LLM Gateway API key</label>
+      <input type="password" id="byok-key-input" placeholder="Paste API key" spellcheck="false" autocomplete="off" />
+
+      <div class="actions">
+        <button class="cancel" id="byok-cancel">Cancel</button>
+        <button class="save primary" id="byok-save">Save & retry</button>
       </div>
     </div>
   </div>
