@@ -8,9 +8,9 @@
 //
 // Interview → Deck generation:
 //   InterviewController walks Q1–Q16 with rich widgets. On completion, we send
-//   the full deckContext to /imranAI/llm with turn:'generate' and apply the
-//   returned patches to deckDoc — one big rewrite of the reference deck into
-//   the customer's deck.
+//   the full deckContext direct to the SF LLM Gateway (BYOK) with turn:'generate'
+//   and apply the returned patches to deckDoc — one big rewrite of the reference
+//   deck into the customer's deck. (Tracker events still go through the worker.)
 //
 // Slide-edit mode:
 //   When a slide is scoped and the user types a message, we send turn:'edit'
@@ -26,7 +26,7 @@ const LS = {
   sessionId: 'icp.sessionId',
 };
 
-const BYOK_TRIGGER_CODES = ['worker_unreachable', 'no_api_key'];
+const BYOK_TRIGGER_CODES = ['no_api_key'];
 
 function isByokTrigger(err) {
   return !!err && (BYOK_TRIGGER_CODES.includes(err.code) || err.status === 401);
@@ -440,20 +440,17 @@ function wireNavFooter() {
 // ------------------------------------------------------------------ Topbar
 function wireTopbar() {
   const modal = document.getElementById('settings-modal');
-  const workerInput = document.getElementById('setting-worker-url');
   const keyInput = document.getElementById('setting-api-key');
 
   document.getElementById('btn-settings').addEventListener('click', () => {
-    workerInput.value = localStorage.getItem(LS.workerUrl) || '';
-    keyInput.value = localStorage.getItem(LS.apiKey) || '';
+    keyInput.value = localStorage.getItem(LS.byokKey) || localStorage.getItem(LS.apiKey) || '';
     modal.classList.add('visible');
   });
   document.getElementById('settings-cancel').addEventListener('click', () => modal.classList.remove('visible'));
   document.getElementById('settings-save').addEventListener('click', () => {
-    const url = workerInput.value.trim();
     const key = keyInput.value.trim();
-    if (url) localStorage.setItem(LS.workerUrl, url); else localStorage.removeItem(LS.workerUrl);
-    if (key) localStorage.setItem(LS.apiKey, key); else localStorage.removeItem(LS.apiKey);
+    if (key) localStorage.setItem(LS.byokKey, key); else localStorage.removeItem(LS.byokKey);
+    localStorage.removeItem(LS.apiKey);
     modal.classList.remove('visible');
   });
   modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('visible'); });
@@ -474,7 +471,7 @@ function wireTopbar() {
 
 // ------------------------------------------------------------------ Tracker
 function fireTrackerEvent(payload) {
-  const workerUrl = getWorkerUrlSafe();
+  const workerUrl = getWorkerUrl();
   if (!workerUrl) return;
   const url = workerUrl.replace(/\/+$/, '') + '/imranAI/track';
   fetch(url, {
@@ -488,7 +485,6 @@ function fireTrackerEvent(payload) {
     keepalive: true,
   }).catch(() => {});
 }
-function getWorkerUrlSafe() { return (localStorage.getItem(LS.workerUrl) || '').trim(); }
 
 // ------------------------------------------------------------------ Utils
 function escapeHtml(s) {
