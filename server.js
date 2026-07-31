@@ -80,6 +80,24 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Temporary debug endpoint — remove after testing
+app.get('/api/debug-gemini', async (req, res) => {
+  const key = process.env.GEMINI_API_KEY;
+  const model = 'gemini-2.0-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: 'Say hello in one word' }] }] })
+    });
+    const body = await r.text();
+    res.json({ status: r.status, keyPrefix: key?.slice(0, 8), model, body: body.slice(0, 1000) });
+  } catch (e) {
+    res.json({ error: e.message, keyPrefix: key?.slice(0, 8) });
+  }
+});
+
 // --- Tracker Endpoint (replaces Cloudflare Worker /imranAI/track) ---
 app.post('/api/track', async (req, res) => {
   try {
