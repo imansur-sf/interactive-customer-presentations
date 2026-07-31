@@ -1,0 +1,1846 @@
+From 4372135d13f6831edc5335e712d4119fe0bbd0bd Mon Sep 17 00:00:00 2001
+From: MeshMesh <noreply@meshmesh.io>
+Date: Fri, 31 Jul 2026 21:56:41 +0000
+Subject: [PATCH] Migrate to Heroku with Gemini AI backend
+
+- Add Express server (server.js) with Gemini API proxy, tool-calling
+  support, image generation, scraping, and tracker endpoints
+- Rewrite llm.js to use same-origin /api/llm instead of SF LLM Gateway
+- Remove all BYOK/API key management from frontend (app.js, index.html)
+- Replace Cloudflare Worker tracker with /api/track endpoint
+- Add Procfile, package.json, and key sync script for Heroku deployment
+- Server binds to :: (IPv6 dual-stack) for Heroku Fir Private Spaces
+---
+ Procfile             |   1 +
+ app.js               | 102 +-----
+ index.html           |  45 ---
+ llm.js               | 154 +++-----
+ package-lock.json    | 831 +++++++++++++++++++++++++++++++++++++++++++
+ package.json         |  14 +
+ scripts/sync-keys.sh |  25 ++
+ server.js            | 455 +++++++++++++++++++++++
+ 8 files changed, 1388 insertions(+), 239 deletions(-)
+ create mode 100644 Procfile
+ create mode 100644 package-lock.json
+ create mode 100644 package.json
+ create mode 100755 scripts/sync-keys.sh
+ create mode 100644 server.js
+
+diff --git a/Procfile b/Procfile
+new file mode 100644
+index 0000000..489b270
+--- /dev/null
++++ b/Procfile
+@@ -0,0 +1 @@
++web: node server.js
+diff --git a/app.js b/app.js
+index 28732f0..56b80b6 100644
+--- a/app.js
++++ b/app.js
+@@ -8,67 +8,21 @@
+ //
+ // Interview → Deck generation:
+ //   InterviewController walks Q1–Q16 with rich widgets. On completion, we send
+-//   the full deckContext direct to the SF LLM Gateway (BYOK) with turn:'generate'
++//   the full deckContext to the server-side Gemini backend with turn:'generate'
+ //   and apply the returned patches to deckDoc — one big rewrite of the reference
+-//   deck into the customer's deck. (Tracker events still go through the worker.)
++//   deck into the customer's deck.
+ //
+ // Slide-edit mode:
+ //   When a slide is scoped and the user types a message, we send turn:'edit'
+ //   with the current slide's HTML and apply the returned patches.
+ 
+ import { InterviewController } from './interview.js';
+-import { callLLM, applyPatches, getWorkerUrl, suggestAnswer } from './llm.js';
++import { callLLM, applyPatches, suggestAnswer } from './llm.js';
+ 
+ const LS = {
+-  workerUrl: 'icp.workerUrl',
+-  apiKey: 'icp.apiKey',
+-  byokKey: 'icp.byokKey',
+   sessionId: 'icp.sessionId',
+ };
+ 
+-const BYOK_TRIGGER_CODES = ['no_api_key'];
+-
+-function isByokTrigger(err) {
+-  return !!err && (BYOK_TRIGGER_CODES.includes(err.code) || err.status === 401);
+-}
+-
+-function showByokOnboarding(err, retryFn) {
+-  const modal = document.getElementById('byok-modal');
+-  const detail = document.getElementById('byok-error-detail');
+-  const keyInput = document.getElementById('byok-key-input');
+-  const saveBtn = document.getElementById('byok-save');
+-  const cancelBtn = document.getElementById('byok-cancel');
+-
+-  if (err && err.userMessage) {
+-    detail.textContent = err.userMessage;
+-    detail.style.display = '';
+-  } else {
+-    detail.textContent = '';
+-    detail.style.display = 'none';
+-  }
+-
+-  const close = () => {
+-    modal.classList.remove('visible');
+-    modal.hidden = true;
+-  };
+-
+-  saveBtn.onclick = () => {
+-    const key = keyInput.value.trim();
+-    if (!key) return;
+-    localStorage.setItem(LS.byokKey, key);
+-    keyInput.value = '';
+-    close();
+-    if (retryFn) retryFn();
+-  };
+-  cancelBtn.onclick = () => close();
+-  modal.onclick = (e) => { if (e.target === modal) close(); };
+-
+-  keyInput.value = '';
+-  modal.hidden = false;
+-  modal.classList.add('visible');
+-  keyInput.focus();
+-}
+-
+ const SLIDE_LABEL_OVERRIDES = { 0: 'Hero', 11: 'Attribution' };
+ 
+ const state = {
+@@ -231,18 +185,11 @@ function startInterview() {
+       await generateDeck(answers);
+     },
+     onSuggest: async (questionId, questionSchema, answersSoFar) => {
+-      try {
+-        return await suggestAnswer({
+-          questionId,
+-          deckContext: { answers: answersSoFar },
+-          questionSchema,
+-        });
+-      } catch (err) {
+-        if (isByokTrigger(err)) {
+-          showByokOnboarding(err, null);
+-        }
+-        throw err;
+-      }
++      return await suggestAnswer({
++        questionId,
++        deckContext: { answers: answersSoFar },
++        questionSchema,
++      });
+     },
+   });
+   state.interview.start();
+@@ -287,11 +234,7 @@ async function generateDeck(answers) {
+     appendMessage('assistant', 'Click any slide on the right to refine it — I can rewrite copy, swap the accent, tighten the hero, whatever you need.');
+   } catch (err) {
+     console.error(err);
+-    if (isByokTrigger(err)) {
+-      showByokOnboarding(err, () => generateDeck(answers));
+-    } else {
+-      appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
+-    }
++    appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
+   } finally {
+     setBusy(false);
+   }
+@@ -326,11 +269,7 @@ async function sendScopedEdit(text) {
+     if (skipped.length) console.warn('skipped patches', skipped);
+   } catch (err) {
+     console.error(err);
+-    if (isByokTrigger(err)) {
+-      showByokOnboarding(err, () => sendScopedEdit(text));
+-    } else {
+-      appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
+-    }
++    appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
+   } finally {
+     setBusy(false);
+   }
+@@ -439,22 +378,6 @@ function wireNavFooter() {
+ 
+ // ------------------------------------------------------------------ Topbar
+ function wireTopbar() {
+-  const modal = document.getElementById('settings-modal');
+-  const keyInput = document.getElementById('setting-api-key');
+-
+-  document.getElementById('btn-settings').addEventListener('click', () => {
+-    keyInput.value = localStorage.getItem(LS.byokKey) || localStorage.getItem(LS.apiKey) || '';
+-    modal.classList.add('visible');
+-  });
+-  document.getElementById('settings-cancel').addEventListener('click', () => modal.classList.remove('visible'));
+-  document.getElementById('settings-save').addEventListener('click', () => {
+-    const key = keyInput.value.trim();
+-    if (key) localStorage.setItem(LS.byokKey, key); else localStorage.removeItem(LS.byokKey);
+-    localStorage.removeItem(LS.apiKey);
+-    modal.classList.remove('visible');
+-  });
+-  modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('visible'); });
+-
+   document.getElementById('btn-export').addEventListener('click', () => {
+     if (!state.deckDoc) return;
+     const html = '<!DOCTYPE html>\n' + state.deckDoc.documentElement.outerHTML;
+@@ -471,10 +394,7 @@ function wireTopbar() {
+ 
+ // ------------------------------------------------------------------ Tracker
+ function fireTrackerEvent(payload) {
+-  const workerUrl = getWorkerUrl();
+-  if (!workerUrl) return;
+-  const url = workerUrl.replace(/\/+$/, '') + '/imranAI/track';
+-  fetch(url, {
++  fetch('/api/track', {
+     method: 'POST',
+     headers: { 'content-type': 'application/json' },
+     body: JSON.stringify({
+diff --git a/index.html b/index.html
+index 2b6cdfc..21a348c 100644
+--- a/index.html
++++ b/index.html
+@@ -633,7 +633,6 @@
+         Interactive Customer Presentations
+       </div>
+       <div class="actions">
+-        <button id="btn-settings" title="API + endpoint settings">Settings</button>
+         <button id="btn-export" class="primary" title="Download deck HTML">Export HTML</button>
+       </div>
+     </header>
+@@ -677,50 +676,6 @@
+     </aside>
+   </div>
+ 
+-  <!-- Settings modal -->
+-  <div class="modal-backdrop" id="settings-modal">
+-    <div class="modal">
+-      <h2>Settings</h2>
+-      <p class="sub">Paste your SF LLM Gateway Express key. Your key stays in this browser.</p>
+-
+-      <label for="setting-api-key">SF LLM Gateway key (BYOK)</label>
+-      <input type="password" id="setting-api-key" placeholder="Paste your SF LLM Gateway Express key" spellcheck="false" autocomplete="off" />
+-      <div class="hint">
+-        Requires the <strong>Salesforce VPN</strong>. Calls go directly from this browser to the SF LLM Gateway — there is no server proxy in the LLM path.<br/>
+-        Your key is stored in this browser's localStorage only. It never leaves your machine except to authenticate the direct gateway call.
+-      </div>
+-
+-      <div class="actions">
+-        <button class="cancel" id="settings-cancel">Cancel</button>
+-        <button class="save" id="settings-save">Save</button>
+-      </div>
+-    </div>
+-  </div>
+-
+-  <!-- BYOK onboarding modal -->
+-  <div class="modal-backdrop" id="byok-modal" hidden>
+-    <div class="modal">
+-      <h2>Connect your LLM Gateway API key</h2>
+-      <p class="sub">The AI call failed because no valid key is available. To enable AI features:</p>
+-
+-      <ol class="hint" style="padding-left: 18px; margin: 0 0 12px;">
+-        <li>Visit the gateway at <a href="https://eng-ai-model-gateway.sfproxy.devx-preprod.aws-esvc1-useast2.aws.sfdc.cl" target="_blank" rel="noopener">eng-ai-model-gateway.sfproxy.devx-preprod.aws-esvc1-useast2.aws.sfdc.cl</a></li>
+-        <li>Provision an API key</li>
+-        <li>Paste the key below to enable AI features</li>
+-      </ol>
+-
+-      <div id="byok-error-detail" class="hint" style="display:none; border-left: 2px solid rgba(0,30,91,0.15); padding-left: 8px; margin-bottom: 12px;"></div>
+-
+-      <label for="byok-key-input">LLM Gateway API key</label>
+-      <input type="password" id="byok-key-input" placeholder="Paste API key" spellcheck="false" autocomplete="off" />
+-
+-      <div class="actions">
+-        <button class="cancel" id="byok-cancel">Cancel</button>
+-        <button class="save primary" id="byok-save">Save & retry</button>
+-      </div>
+-    </div>
+-  </div>
+-
+   <script type="module" src="app.js"></script>
+ </body>
+ </html>
+diff --git a/llm.js b/llm.js
+index 10fbbf5..f3df9b2 100644
+--- a/llm.js
++++ b/llm.js
+@@ -1,59 +1,21 @@
+-// LLM plumbing — direct BYOK call to the Salesforce LLM Gateway Express.
++// LLM plumbing — same-origin call to the Express /api/llm endpoint.
+ //
+-// Topology (a): the browser posts OpenAI-shape chat/completions directly to
+-// the SF LLM Gateway using the user's BYOK key from localStorage. No worker
+-// in the LLM auth path. Requires the Salesforce VPN to reach the gateway host.
++// The server proxies requests to Google Gemini API with the API key
++// secured as a Heroku config var. No client-side API key needed.
+ //
+-// The worker still exists to pass /imranAI/track events through to the
+-// decktools tracker, but it is NOT called from this file.
++// The system prompt (skill context) is still assembled client-side
++// and sent to the server, which forwards it to Gemini.
+ 
+-export const SF_GATEWAY_URL =
+-  'https://eng-ai-model-gateway.sfproxy.devx-preprod.aws-esvc1-useast2.aws.sfdc.cl/v1/chat/completions';
+-
+-// Kept for back-compat with older imports (Settings UI, etc.). Unused for LLM.
+-export const DEFAULT_LEGACY_WORKER_URL = 'https://icp-imranai-llm.imansur.workers.dev';
+-export const DEFAULT_WORKER_URL = DEFAULT_LEGACY_WORKER_URL;
+-
+-const LS = {
+-  workerUrl: 'icp.workerUrl',
+-  workerUrlLegacy: 'icp.legacyWorkerUrl',
+-  byokKey: 'icp.byokKey',
+-  apiKeyLegacy: 'icp.apiKey',
++// Tier mapping: old model names → Gemini tiers
++// The server picks the actual Gemini model based on tier.
++const TIER_MAP = {
++  opus:   'powerful',
++  sonnet: 'balanced',
++  haiku:  'fast',
+ };
+-
+-const MODELS = {
+-  opus:   'claude-sonnet-4-5-20250929',
+-  sonnet: 'claude-sonnet-4-20250514',
+-  haiku:  'claude-3-5-sonnet-20240620-v1',
+-};
+-const DEFAULT_MODEL = 'opus';
++const DEFAULT_TIER = 'powerful';
+ 
+ // -------------------- Public API --------------------
+-export function getWorkerUrl() {
+-  return (
+-    localStorage.getItem(LS.workerUrl) ||
+-    localStorage.getItem(LS.workerUrlLegacy) ||
+-    DEFAULT_LEGACY_WORKER_URL
+-  ).trim();
+-}
+-export function getLegacyWorkerUrl() { return getWorkerUrl(); }
+-
+-export function getApiKey() {
+-  return (
+-    localStorage.getItem(LS.byokKey) ||
+-    localStorage.getItem(LS.apiKeyLegacy) ||
+-    ''
+-  ).trim();
+-}
+-
+-/**
+- * Detect which upstream path this call should use. With topology (a) there is
+- * only one path — direct browser → SF gateway — plus a "no key" sentinel that
+- * the UI uses to trigger the BYOK onboarding modal.
+- */
+-export function detectRoute() {
+-  return getApiKey() ? 'gateway-direct' : 'no-key';
+-}
+ 
+ /** Convenience wrapper for the Suggest button */
+ export async function suggestAnswer({ questionId, deckContext, questionSchema }) {
+@@ -69,25 +31,16 @@ export async function suggestAnswer({ questionId, deckContext, questionSchema })
+ 
+ /**
+  * The unified LLM call. Builds the system prompt and tool schema in-browser,
+- * then posts OpenAI-shape chat/completions to the SF LLM Gateway with the
+- * BYOK key from localStorage.
++ * then posts to the same-origin /api/llm endpoint which proxies to Gemini.
+  */
+ export async function callLLM(payload) {
+-  return callGateway(payload);
++  return callServer(payload);
+ }
+ // Back-compat alias for older imports.
+ export const callWorker = callLLM;
+ 
+-// -------------------- Direct SF Gateway path --------------------
+-async function callGateway(payload) {
+-  const key = getApiKey();
+-  if (!key) {
+-    throwUser(
+-      'no_api_key',
+-      'No SF LLM Gateway key set. Paste your key in Settings to enable the AI turns.'
+-    );
+-  }
+-
++// -------------------- Server proxy path --------------------
++async function callServer(payload) {
+   const {
+     turn = 'answer',
+     questionId,
+@@ -95,86 +48,81 @@ async function callGateway(payload) {
+     userMessage = '',
+     deckContext = {},
+     questionSchema,
+-    model = DEFAULT_MODEL,
++    model = 'opus',
+   } = payload || {};
+ 
+-  const modelId = MODELS[model] || MODELS[DEFAULT_MODEL];
++  const tier = TIER_MAP[model] || DEFAULT_TIER;
+   const systemText = await buildSystemText();
+   const { userPrompt, tool } = buildTurnPrompt({
+     turn, questionId, slideId, userMessage, deckContext, questionSchema,
+   });
+ 
+   const body = {
+-    model: modelId,
+-    max_tokens: 4096,
+-    messages: [
+-      { role: 'system', content: systemText },
+-      { role: 'user',   content: userPrompt },
+-    ],
++    prompt: userPrompt,
++    system: systemText,
++    tier,
++    maxTokens: 8192,
+     tools: [{
+-      type: 'function',
+-      function: {
+-        name: tool.name,
+-        description: tool.description,
+-        parameters: tool.input_schema,
+-      },
++      name: tool.name,
++      description: tool.description,
++      parameters: tool.input_schema,
+     }],
+-    tool_choice: { type: 'function', function: { name: tool.name } },
++    toolChoice: tool.name,
+   };
+ 
+   let res;
+   try {
+-    res = await fetch(SF_GATEWAY_URL, {
++    res = await fetch('/api/llm', {
+       method: 'POST',
+-      headers: {
+-        'Authorization': `Bearer ${key}`,
+-        'content-type': 'application/json',
+-      },
++      headers: { 'content-type': 'application/json' },
+       body: JSON.stringify(body),
+     });
+   } catch (err) {
+     throwUser(
+-      'gateway_unreachable',
+-      `SF LLM Gateway not reachable: ${err.message}. Are you on the Salesforce VPN?`
++      'server_unreachable',
++      `Server not reachable: ${err.message}.`
+     );
+   }
+ 
+   const raw = await res.text();
+   const data = safeParse(raw);
++
+   if (!res.ok) {
+-    const detail = data?.error?.message || raw.slice(0, 400);
++    const detail = data?.error || data?.body || raw.slice(0, 400);
+     throwUser(
+-      `gateway_${res.status}`,
++      `server_${res.status}`,
+       renderErrorMessage(res.status, detail),
+       { status: res.status, detail }
+     );
+   }
+-  if (!data) throwUser('bad_upstream_json', 'Gateway returned invalid JSON.');
++  if (!data) throwUser('bad_upstream_json', 'Server returned invalid JSON.');
+ 
+-  const choice = data.choices?.[0];
+-  const toolCall = choice?.message?.tool_calls?.[0];
+-  if (!toolCall) {
+-    const preview = choice?.message?.content?.slice?.(0, 300) || 'no tool_calls in response';
++  // The server returns { result: {...args}, functionName, model_used, tier, usage }
++  const args = data.result;
++  if (!args) {
++    const preview = data.text_preview || data.text?.slice?.(0, 300) || 'no result in response';
+     throwUser('no_tool_use', `Model did not return a tool call: ${preview}`);
+   }
+-  const rawArgs = toolCall.function?.arguments;
+-  const args = typeof rawArgs === 'string' ? safeParse(rawArgs) : rawArgs;
+-  if (!args) throwUser('bad_tool_arguments', 'Tool call arguments were not valid JSON.');
+ 
+-  return { ...args, _meta: { provider: 'llm-gateway', model: modelId, usage: data.usage } };
++  return { ...args, _meta: { provider: 'gemini', model: data.model_used, tier: data.tier, usage: data.usage } };
+ }
+ 
+ function renderErrorMessage(status, detail) {
+-  if (status === 401) return 'Auth failed. Double-check your SF LLM Gateway key in Settings.';
+-  if (status === 403) return 'Access denied. Your key may not have permission for this model.';
+-  if (status === 429) return 'Rate limited by the gateway. Wait a moment and try again.';
+-  if (status === 503) return 'The gateway upstream failed. Try again in a moment.';
++  if (status === 429) return 'Rate limited. Wait a moment and try again.';
++  if (status === 503) return 'AI backend not configured. Contact the administrator.';
++  if (status === 502) {
++    if (typeof detail === 'string') {
++      if (detail.includes('auth_failed')) return 'AI authentication failed. Contact the administrator.';
++      if (detail.includes('rate_limited')) return 'AI rate limited. Wait a moment and try again.';
++    }
++    return 'AI backend error. Try again in a moment.';
++  }
+   const trimmed = typeof detail === 'string' ? detail.slice(0, 200) : '';
+-  if (status >= 500) return `Gateway returned ${status}${trimmed ? ` (${trimmed})` : ''}.`;
++  if (status >= 500) return `Server returned ${status}${trimmed ? ` (${trimmed})` : ''}.`;
+   return trimmed || `Request failed (${status}).`;
+ }
+ 
+-// -------------------- System prompt (was on the worker) --------------------
++// -------------------- System prompt --------------------
+ let _skillCache = null;
+ async function loadSkillContext() {
+   if (_skillCache) return _skillCache;
+@@ -205,7 +153,7 @@ async function buildSystemText() {
+   const { skill, style, principles, composer } = await loadSkillContext();
+   const preamble = [
+     'You are the sf-decktools narrative deck builder.',
+-    'You have been loaded with the full Salesforce narrative deck design system below — the same skill that Claude Code users get when they install sf-decktools.',
++    'You have been loaded with the full Salesforce narrative deck design system below.',
+     'Follow every rule in SKILL.md, STYLE-GUIDE.md, and SLIDE-PRINCIPLES.md strictly. They are non-negotiable.',
+     'Your job on each turn is to return a JSON tool call describing patches to apply to the deck HTML.',
+     '',
+diff --git a/package-lock.json b/package-lock.json
+new file mode 100644
+index 0000000..542b866
+--- /dev/null
++++ b/package-lock.json
+@@ -0,0 +1,831 @@
++{
++  "name": "sassysolutions-interactive-preso",
++  "version": "1.0.0",
++  "lockfileVersion": 3,
++  "requires": true,
++  "packages": {
++    "": {
++      "name": "sassysolutions-interactive-preso",
++      "version": "1.0.0",
++      "dependencies": {
++        "express": "^4.21.0"
++      },
++      "engines": {
++        "node": "22.x"
++      }
++    },
++    "node_modules/accepts": {
++      "version": "1.3.8",
++      "resolved": "https://registry.npmjs.org/accepts/-/accepts-1.3.8.tgz",
++      "integrity": "sha512-PYAthTa2m2VKxuvSD3DPC/Gy+U+sOA1LAuT8mkmRuvw+NACSaeXEQ+NHcVF7rONl6qcaxV3Uuemwawk+7+SJLw==",
++      "license": "MIT",
++      "dependencies": {
++        "mime-types": "~2.1.34",
++        "negotiator": "0.6.3"
++      },
++      "engines": {
++        "node": ">= 0.6"
++      }
++    },
++    "node_modules/array-flatten": {
++      "version": "1.1.1",
++      "resolved": "https://registry.npmjs.org/array-flatten/-/array-flatten-1.1.1.tgz",
++      "integrity": "sha512-PCVAQswWemu6UdxsDFFX/+gVeYqKAod3D3UVm91jHwynguOwAvYPhx8nNlM++NqRcK6CxxpUafjmhIdKiHibqg==",
++      "license": "MIT"
++    },
++    "node_modules/body-parser": {
++      "version": "1.20.6",
++      "resolved": "https://registry.npmjs.org/body-parser/-/body-parser-1.20.6.tgz",
++      "integrity": "sha512-p5tAzS57i5MV9fZFDj9LeIiTZEufbSe2eDozP+ElheSUq1m74CRq1jI4mYNDdVs9vQztXFLuk/Gd6BWTdwRJ5g==",
++      "license": "MIT",
++      "dependencies": {
++        "bytes": "~3.1.2",
++        "content-type": "~1.0.5",
++        "debug": "2.6.9",
++        "depd": "2.0.0",
++        "destroy": "~1.2.0",
++        "http-errors": "~2.0.1",
++        "iconv-lite": "~0.4.24",
++        "on-finished": "~2.4.1",
++        "qs": "~6.15.1",
++        "raw-body": "~2.5.3",
++        "type-is": "~1.6.18",
++        "unpipe": "~1.0.0"
++      },
++      "engines": {
++        "node": ">= 0.8",
++        "npm": "1.2.8000 || >= 1.4.16"
++      }
++    },
++    "node_modules/bytes": {
++      "version": "3.1.2",
++      "resolved": "https://registry.npmjs.org/bytes/-/bytes-3.1.2.tgz",
++      "integrity": "sha512-/Nf7TyzTx6S3yRJObOAV7956r8cr2+Oj8AC5dt8wSP3BQAoeX58NoHyCU8P8zGkNXStjTSi6fzO6F0pBdcYbEg==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.8"
++      }
++    },
++    "node_modules/call-bind-apply-helpers": {
++      "version": "1.0.2",
++      "resolved": "https://registry.npmjs.org/call-bind-apply-helpers/-/call-bind-apply-helpers-1.0.2.tgz",
++      "integrity": "sha512-Sp1ablJ0ivDkSzjcaJdxEunN5/XvksFJ2sMBFfq6x0ryhQV/2b/KwFe21cMpmHtPOSij8K99/wSfoEuTObmuMQ==",
++      "license": "MIT",
++      "dependencies": {
++        "es-errors": "^1.3.0",
++        "function-bind": "^1.1.2"
++      },
++      "engines": {
++        "node": ">= 0.4"
++      }
++    },
++    "node_modules/call-bound": {
++      "version": "1.0.4",
++      "resolved": "https://registry.npmjs.org/call-bound/-/call-bound-1.0.4.tgz",
++      "integrity": "sha512-+ys997U96po4Kx/ABpBCqhA9EuxJaQWDQg7295H4hBphv3IZg0boBKuwYpt4YXp6MZ5AmZQnU/tyMTlRpaSejg==",
++      "license": "MIT",
++      "dependencies": {
++        "call-bind-apply-helpers": "^1.0.2",
++        "get-intrinsic": "^1.3.0"
++      },
++      "engines": {
++        "node": ">= 0.4"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/ljharb"
++      }
++    },
++    "node_modules/content-disposition": {
++      "version": "0.5.4",
++      "resolved": "https://registry.npmjs.org/content-disposition/-/content-disposition-0.5.4.tgz",
++      "integrity": "sha512-FveZTNuGw04cxlAiWbzi6zTAL/lhehaWbTtgluJh4/E95DqMwTmha3KZN1aAWA8cFIhHzMZUvLevkw5Rqk+tSQ==",
++      "license": "MIT",
++      "dependencies": {
++        "safe-buffer": "5.2.1"
++      },
++      "engines": {
++        "node": ">= 0.6"
++      }
++    },
++    "node_modules/content-type": {
++      "version": "1.0.5",
++      "resolved": "https://registry.npmjs.org/content-type/-/content-type-1.0.5.tgz",
++      "integrity": "sha512-nTjqfcBFEipKdXCv4YDQWCfmcLZKm81ldF0pAopTvyrFGVbcR6P/VAAd5G7N+0tTr8QqiU0tFadD6FK4NtJwOA==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.6"
++      }
++    },
++    "node_modules/cookie": {
++      "version": "0.7.2",
++      "resolved": "https://registry.npmjs.org/cookie/-/cookie-0.7.2.tgz",
++      "integrity": "sha512-yki5XnKuf750l50uGTllt6kKILY4nQ1eNIQatoXEByZ5dWgnKqbnqmTrBE5B4N7lrMJKQ2ytWMiTO2o0v6Ew/w==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.6"
++      }
++    },
++    "node_modules/cookie-signature": {
++      "version": "1.0.7",
++      "resolved": "https://registry.npmjs.org/cookie-signature/-/cookie-signature-1.0.7.tgz",
++      "integrity": "sha512-NXdYc3dLr47pBkpUCHtKSwIOQXLVn8dZEuywboCOJY/osA0wFSLlSawr3KN8qXJEyX66FcONTH8EIlVuK0yyFA==",
++      "license": "MIT"
++    },
++    "node_modules/debug": {
++      "version": "2.6.9",
++      "resolved": "https://registry.npmjs.org/debug/-/debug-2.6.9.tgz",
++      "integrity": "sha512-bC7ElrdJaJnPbAP+1EotYvqZsb3ecl5wi6Bfi6BJTUcNowp6cvspg0jXznRTKDjm/E7AdgFBVeAPVMNcKGsHMA==",
++      "license": "MIT",
++      "dependencies": {
++        "ms": "2.0.0"
++      }
++    },
++    "node_modules/depd": {
++      "version": "2.0.0",
++      "resolved": "https://registry.npmjs.org/depd/-/depd-2.0.0.tgz",
++      "integrity": "sha512-g7nH6P6dyDioJogAAGprGpCtVImJhpPk/roCzdb3fIh61/s/nPsfR6onyMwkCAR/OlC3yBC0lESvUoQEAssIrw==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.8"
++      }
++    },
++    "node_modules/destroy": {
++      "version": "1.2.0",
++      "resolved": "https://registry.npmjs.org/destroy/-/destroy-1.2.0.tgz",
++      "integrity": "sha512-2sJGJTaXIIaR1w4iJSNoN0hnMY7Gpc/n8D4qSCJw8QqFWXf7cuAgnEHxBpweaVcPevC2l3KpjYCx3NypQQgaJg==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.8",
++        "npm": "1.2.8000 || >= 1.4.16"
++      }
++    },
++    "node_modules/dunder-proto": {
++      "version": "1.0.1",
++      "resolved": "https://registry.npmjs.org/dunder-proto/-/dunder-proto-1.0.1.tgz",
++      "integrity": "sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A==",
++      "license": "MIT",
++      "dependencies": {
++        "call-bind-apply-helpers": "^1.0.1",
++        "es-errors": "^1.3.0",
++        "gopd": "^1.2.0"
++      },
++      "engines": {
++        "node": ">= 0.4"
++      }
++    },
++    "node_modules/ee-first": {
++      "version": "1.1.1",
++      "resolved": "https://registry.npmjs.org/ee-first/-/ee-first-1.1.1.tgz",
++      "integrity": "sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==",
++      "license": "MIT"
++    },
++    "node_modules/encodeurl": {
++      "version": "2.0.0",
++      "resolved": "https://registry.npmjs.org/encodeurl/-/encodeurl-2.0.0.tgz",
++      "integrity": "sha512-Q0n9HRi4m6JuGIV1eFlmvJB7ZEVxu93IrMyiMsGC0lrMJMWzRgx6WGquyfQgZVb31vhGgXnfmPNNXmxnOkRBrg==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.8"
++      }
++    },
++    "node_modules/es-define-property": {
++      "version": "1.0.1",
++      "resolved": "https://registry.npmjs.org/es-define-property/-/es-define-property-1.0.1.tgz",
++      "integrity": "sha512-e3nRfgfUZ4rNGL232gUgX06QNyyez04KdjFrF+LTRoOXmrOgFKDg4BCdsjW8EnT69eqdYGmRpJwiPVYNrCaW3g==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.4"
++      }
++    },
++    "node_modules/es-errors": {
++      "version": "1.3.0",
++      "resolved": "https://registry.npmjs.org/es-errors/-/es-errors-1.3.0.tgz",
++      "integrity": "sha512-Zf5H2Kxt2xjTvbJvP2ZWLEICxA6j+hAmMzIlypy4xcBg1vKVnx89Wy0GbS+kf5cwCVFFzdCFh2XSCFNULS6csw==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.4"
++      }
++    },
++    "node_modules/es-object-atoms": {
++      "version": "1.1.2",
++      "resolved": "https://registry.npmjs.org/es-object-atoms/-/es-object-atoms-1.1.2.tgz",
++      "integrity": "sha512-HWcBoN6NileqtSydK2FqHbS/LoDd2pqrnQHLyJzBj4kOp/ky2MWMN694xOfkK8/SnUsW2DH7EfyVlydKCsm1Zw==",
++      "license": "MIT",
++      "dependencies": {
++        "es-errors": "^1.3.0"
++      },
++      "engines": {
++        "node": ">= 0.4"
++      }
++    },
++    "node_modules/escape-html": {
++      "version": "1.0.3",
++      "resolved": "https://registry.npmjs.org/escape-html/-/escape-html-1.0.3.tgz",
++      "integrity": "sha512-NiSupZ4OeuGwr68lGIeym/ksIZMJodUGOSCZ/FSnTxcrekbvqrgdUxlJOMpijaKZVjAJrWrGs/6Jy8OMuyj9ow==",
++      "license": "MIT"
++    },
++    "node_modules/etag": {
++      "version": "1.8.1",
++      "resolved": "https://registry.npmjs.org/etag/-/etag-1.8.1.tgz",
++      "integrity": "sha512-aIL5Fx7mawVa300al2BnEE4iNvo1qETxLrPI/o05L7z6go7fCw1J6EQmbK4FmJ2AS7kgVF/KEZWufBfdClMcPg==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.6"
++      }
++    },
++    "node_modules/express": {
++      "version": "4.22.2",
++      "resolved": "https://registry.npmjs.org/express/-/express-4.22.2.tgz",
++      "integrity": "sha512-IuL+Elrou2ZvCFHs18/CIzy2Nzvo25nZ1/D2eIZlz7c+QUayAcYoiM2BthCjs+EBHVpjYjcuLDAiCWgeIX3X1Q==",
++      "license": "MIT",
++      "dependencies": {
++        "accepts": "~1.3.8",
++        "array-flatten": "1.1.1",
++        "body-parser": "~1.20.5",
++        "content-disposition": "~0.5.4",
++        "content-type": "~1.0.4",
++        "cookie": "~0.7.1",
++        "cookie-signature": "~1.0.6",
++        "debug": "2.6.9",
++        "depd": "2.0.0",
++        "encodeurl": "~2.0.0",
++        "escape-html": "~1.0.3",
++        "etag": "~1.8.1",
++        "finalhandler": "~1.3.1",
++        "fresh": "~0.5.2",
++        "http-errors": "~2.0.0",
++        "merge-descriptors": "1.0.3",
++        "methods": "~1.1.2",
++        "on-finished": "~2.4.1",
++        "parseurl": "~1.3.3",
++        "path-to-regexp": "~0.1.12",
++        "proxy-addr": "~2.0.7",
++        "qs": "~6.15.1",
++        "range-parser": "~1.2.1",
++        "safe-buffer": "5.2.1",
++        "send": "~0.19.0",
++        "serve-static": "~1.16.2",
++        "setprototypeof": "1.2.0",
++        "statuses": "~2.0.1",
++        "type-is": "~1.6.18",
++        "utils-merge": "1.0.1",
++        "vary": "~1.1.2"
++      },
++      "engines": {
++        "node": ">= 0.10.0"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/express"
++      }
++    },
++    "node_modules/finalhandler": {
++      "version": "1.3.2",
++      "resolved": "https://registry.npmjs.org/finalhandler/-/finalhandler-1.3.2.tgz",
++      "integrity": "sha512-aA4RyPcd3badbdABGDuTXCMTtOneUCAYH/gxoYRTZlIJdF0YPWuGqiAsIrhNnnqdXGswYk6dGujem4w80UJFhg==",
++      "license": "MIT",
++      "dependencies": {
++        "debug": "2.6.9",
++        "encodeurl": "~2.0.0",
++        "escape-html": "~1.0.3",
++        "on-finished": "~2.4.1",
++        "parseurl": "~1.3.3",
++        "statuses": "~2.0.2",
++        "unpipe": "~1.0.0"
++      },
++      "engines": {
++        "node": ">= 0.8"
++      }
++    },
++    "node_modules/forwarded": {
++      "version": "0.2.0",
++      "resolved": "https://registry.npmjs.org/forwarded/-/forwarded-0.2.0.tgz",
++      "integrity": "sha512-buRG0fpBtRHSTCOASe6hD258tEubFoRLb4ZNA6NxMVHNw2gOcwHo9wyablzMzOA5z9xA9L1KNjk/Nt6MT9aYow==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.6"
++      }
++    },
++    "node_modules/fresh": {
++      "version": "0.5.2",
++      "resolved": "https://registry.npmjs.org/fresh/-/fresh-0.5.2.tgz",
++      "integrity": "sha512-zJ2mQYM18rEFOudeV4GShTGIQ7RbzA7ozbU9I/XBpm7kqgMywgmylMwXHxZJmkVoYkna9d2pVXVXPdYTP9ej8Q==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.6"
++      }
++    },
++    "node_modules/function-bind": {
++      "version": "1.1.2",
++      "resolved": "https://registry.npmjs.org/function-bind/-/function-bind-1.1.2.tgz",
++      "integrity": "sha512-7XHNxH7qX9xG5mIwxkhumTox/MIRNcOgDrxWsMt2pAr23WHp6MrRlN7FBSFpCpr+oVO0F744iUgR82nJMfG2SA==",
++      "license": "MIT",
++      "funding": {
++        "url": "https://github.com/sponsors/ljharb"
++      }
++    },
++    "node_modules/get-intrinsic": {
++      "version": "1.3.0",
++      "resolved": "https://registry.npmjs.org/get-intrinsic/-/get-intrinsic-1.3.0.tgz",
++      "integrity": "sha512-9fSjSaos/fRIVIp+xSJlE6lfwhES7LNtKaCBIamHsjr2na1BiABJPo0mOjjz8GJDURarmCPGqaiVg5mfjb98CQ==",
++      "license": "MIT",
++      "dependencies": {
++        "call-bind-apply-helpers": "^1.0.2",
++        "es-define-property": "^1.0.1",
++        "es-errors": "^1.3.0",
++        "es-object-atoms": "^1.1.1",
++        "function-bind": "^1.1.2",
++        "get-proto": "^1.0.1",
++        "gopd": "^1.2.0",
++        "has-symbols": "^1.1.0",
++        "hasown": "^2.0.2",
++        "math-intrinsics": "^1.1.0"
++      },
++      "engines": {
++        "node": ">= 0.4"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/ljharb"
++      }
++    },
++    "node_modules/get-proto": {
++      "version": "1.0.1",
++      "resolved": "https://registry.npmjs.org/get-proto/-/get-proto-1.0.1.tgz",
++      "integrity": "sha512-sTSfBjoXBp89JvIKIefqw7U2CCebsc74kiY6awiGogKtoSGbgjYE/G/+l9sF3MWFPNc9IcoOC4ODfKHfxFmp0g==",
++      "license": "MIT",
++      "dependencies": {
++        "dunder-proto": "^1.0.1",
++        "es-object-atoms": "^1.0.0"
++      },
++      "engines": {
++        "node": ">= 0.4"
++      }
++    },
++    "node_modules/gopd": {
++      "version": "1.2.0",
++      "resolved": "https://registry.npmjs.org/gopd/-/gopd-1.2.0.tgz",
++      "integrity": "sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.4"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/ljharb"
++      }
++    },
++    "node_modules/has-symbols": {
++      "version": "1.1.0",
++      "resolved": "https://registry.npmjs.org/has-symbols/-/has-symbols-1.1.0.tgz",
++      "integrity": "sha512-1cDNdwJ2Jaohmb3sg4OmKaMBwuC48sYni5HUw2DvsC8LjGTLK9h+eb1X6RyuOHe4hT0ULCW68iomhjUoKUqlPQ==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.4"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/ljharb"
++      }
++    },
++    "node_modules/hasown": {
++      "version": "2.0.4",
++      "resolved": "https://registry.npmjs.org/hasown/-/hasown-2.0.4.tgz",
++      "integrity": "sha512-T2UbfbBEF32wiepXIsMlTW9+dDYC6wMh/t/vYA4tuOMKqWz/n3vr1NFSxQiyP+zk2mXsoMA/i/7qV6LKut1t1A==",
++      "license": "MIT",
++      "dependencies": {
++        "function-bind": "^1.1.2"
++      },
++      "engines": {
++        "node": ">= 0.4"
++      }
++    },
++    "node_modules/http-errors": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/http-errors/-/http-errors-2.0.1.tgz",
++      "integrity": "sha512-4FbRdAX+bSdmo4AUFuS0WNiPz8NgFt+r8ThgNWmlrjQjt1Q7ZR9+zTlce2859x4KSXrwIsaeTqDoKQmtP8pLmQ==",
++      "license": "MIT",
++      "dependencies": {
++        "depd": "~2.0.0",
++        "inherits": "~2.0.4",
++        "setprototypeof": "~1.2.0",
++        "statuses": "~2.0.2",
++        "toidentifier": "~1.0.1"
++      },
++      "engines": {
++        "node": ">= 0.8"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/express"
++      }
++    },
++    "node_modules/iconv-lite": {
++      "version": "0.4.24",
++      "resolved": "https://registry.npmjs.org/iconv-lite/-/iconv-lite-0.4.24.tgz",
++      "integrity": "sha512-v3MXnZAcvnywkTUEZomIActle7RXXeedOR31wwl7VlyoXO4Qi9arvSenNQWne1TcRwhCL1HwLI21bEqdpj8/rA==",
++      "license": "MIT",
++      "dependencies": {
++        "safer-buffer": ">= 2.1.2 < 3"
++      },
++      "engines": {
++        "node": ">=0.10.0"
++      }
++    },
++    "node_modules/inherits": {
++      "version": "2.0.4",
++      "resolved": "https://registry.npmjs.org/inherits/-/inherits-2.0.4.tgz",
++      "integrity": "sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==",
++      "license": "ISC"
++    },
++    "node_modules/ipaddr.js": {
++      "version": "1.9.1",
++      "resolved": "https://registry.npmjs.org/ipaddr.js/-/ipaddr.js-1.9.1.tgz",
++      "integrity": "sha512-0KI/607xoxSToH7GjN1FfSbLoU0+btTicjsQSWQlh/hZykN8KpmMf7uYwPW3R+akZ6R/w18ZlXSHBYXiYUPO3g==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.10"
++      }
++    },
++    "node_modules/math-intrinsics": {
++      "version": "1.1.0",
++      "resolved": "https://registry.npmjs.org/math-intrinsics/-/math-intrinsics-1.1.0.tgz",
++      "integrity": "sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.4"
++      }
++    },
++    "node_modules/media-typer": {
++      "version": "0.3.0",
++      "resolved": "https://registry.npmjs.org/media-typer/-/media-typer-0.3.0.tgz",
++      "integrity": "sha512-dq+qelQ9akHpcOl/gUVRTxVIOkAJ1wR3QAvb4RsVjS8oVoFjDGTc679wJYmUmknUF5HwMLOgb5O+a3KxfWapPQ==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.6"
++      }
++    },
++    "node_modules/merge-descriptors": {
++      "version": "1.0.3",
++      "resolved": "https://registry.npmjs.org/merge-descriptors/-/merge-descriptors-1.0.3.tgz",
++      "integrity": "sha512-gaNvAS7TZ897/rVaZ0nMtAyxNyi/pdbjbAwUpFQpN70GqnVfOiXpeUUMKRBmzXaSQ8DdTX4/0ms62r2K+hE6mQ==",
++      "license": "MIT",
++      "funding": {
++        "url": "https://github.com/sponsors/sindresorhus"
++      }
++    },
++    "node_modules/methods": {
++      "version": "1.1.2",
++      "resolved": "https://registry.npmjs.org/methods/-/methods-1.1.2.tgz",
++      "integrity": "sha512-iclAHeNqNm68zFtnZ0e+1L2yUIdvzNoauKU4WBA3VvH/vPFieF7qfRlwUZU+DA9P9bPXIS90ulxoUoCH23sV2w==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.6"
++      }
++    },
++    "node_modules/mime": {
++      "version": "1.6.0",
++      "resolved": "https://registry.npmjs.org/mime/-/mime-1.6.0.tgz",
++      "integrity": "sha512-x0Vn8spI+wuJ1O6S7gnbaQg8Pxh4NNHb7KSINmEWKiPE4RKOplvijn+NkmYmmRgP68mc70j2EbeTFRsrswaQeg==",
++      "license": "MIT",
++      "bin": {
++        "mime": "cli.js"
++      },
++      "engines": {
++        "node": ">=4"
++      }
++    },
++    "node_modules/mime-db": {
++      "version": "1.52.0",
++      "resolved": "https://registry.npmjs.org/mime-db/-/mime-db-1.52.0.tgz",
++      "integrity": "sha512-sPU4uV7dYlvtWJxwwxHD0PuihVNiE7TyAbQ5SWxDCB9mUYvOgroQOwYQQOKPJ8CIbE+1ETVlOoK1UC2nU3gYvg==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.6"
++      }
++    },
++    "node_modules/mime-types": {
++      "version": "2.1.35",
++      "resolved": "https://registry.npmjs.org/mime-types/-/mime-types-2.1.35.tgz",
++      "integrity": "sha512-ZDY+bPm5zTTF+YpCrAU9nK0UgICYPT0QtT1NZWFv4s++TNkcgVaT0g6+4R2uI4MjQjzysHB1zxuWL50hzaeXiw==",
++      "license": "MIT",
++      "dependencies": {
++        "mime-db": "1.52.0"
++      },
++      "engines": {
++        "node": ">= 0.6"
++      }
++    },
++    "node_modules/ms": {
++      "version": "2.0.0",
++      "resolved": "https://registry.npmjs.org/ms/-/ms-2.0.0.tgz",
++      "integrity": "sha512-Tpp60P6IUJDTuOq/5Z8cdskzJujfwqfOTkrwIwj7IRISpnkJnT6SyJ4PCPnGMoFjC9ddhal5KVIYtAt97ix05A==",
++      "license": "MIT"
++    },
++    "node_modules/negotiator": {
++      "version": "0.6.3",
++      "resolved": "https://registry.npmjs.org/negotiator/-/negotiator-0.6.3.tgz",
++      "integrity": "sha512-+EUsqGPLsM+j/zdChZjsnX51g4XrHFOIXwfnCVPGlQk/k5giakcKsuxCObBRu6DSm9opw/O6slWbJdghQM4bBg==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.6"
++      }
++    },
++    "node_modules/object-inspect": {
++      "version": "1.13.4",
++      "resolved": "https://registry.npmjs.org/object-inspect/-/object-inspect-1.13.4.tgz",
++      "integrity": "sha512-W67iLl4J2EXEGTbfeHCffrjDfitvLANg0UlX3wFUUSTx92KXRFegMHUVgSqE+wvhAbi4WqjGg9czysTV2Epbew==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.4"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/ljharb"
++      }
++    },
++    "node_modules/on-finished": {
++      "version": "2.4.1",
++      "resolved": "https://registry.npmjs.org/on-finished/-/on-finished-2.4.1.tgz",
++      "integrity": "sha512-oVlzkg3ENAhCk2zdv7IJwd/QUD4z2RxRwpkcGY8psCVcCYZNq4wYnVWALHM+brtuJjePWiYF/ClmuDr8Ch5+kg==",
++      "license": "MIT",
++      "dependencies": {
++        "ee-first": "1.1.1"
++      },
++      "engines": {
++        "node": ">= 0.8"
++      }
++    },
++    "node_modules/parseurl": {
++      "version": "1.3.3",
++      "resolved": "https://registry.npmjs.org/parseurl/-/parseurl-1.3.3.tgz",
++      "integrity": "sha512-CiyeOxFT/JZyN5m0z9PfXw4SCBJ6Sygz1Dpl0wqjlhDEGGBP1GnsUVEL0p63hoG1fcj3fHynXi9NYO4nWOL+qQ==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.8"
++      }
++    },
++    "node_modules/path-to-regexp": {
++      "version": "0.1.13",
++      "resolved": "https://registry.npmjs.org/path-to-regexp/-/path-to-regexp-0.1.13.tgz",
++      "integrity": "sha512-A/AGNMFN3c8bOlvV9RreMdrv7jsmF9XIfDeCd87+I8RNg6s78BhJxMu69NEMHBSJFxKidViTEdruRwEk/WIKqA==",
++      "license": "MIT"
++    },
++    "node_modules/proxy-addr": {
++      "version": "2.0.7",
++      "resolved": "https://registry.npmjs.org/proxy-addr/-/proxy-addr-2.0.7.tgz",
++      "integrity": "sha512-llQsMLSUDUPT44jdrU/O37qlnifitDP+ZwrmmZcoSKyLKvtZxpyV0n2/bD/N4tBAAZ/gJEdZU7KMraoK1+XYAg==",
++      "license": "MIT",
++      "dependencies": {
++        "forwarded": "0.2.0",
++        "ipaddr.js": "1.9.1"
++      },
++      "engines": {
++        "node": ">= 0.10"
++      }
++    },
++    "node_modules/qs": {
++      "version": "6.15.3",
++      "resolved": "https://registry.npmjs.org/qs/-/qs-6.15.3.tgz",
++      "integrity": "sha512-O9gl3zCl5h5blw1KGUzQKhA5oUXSl8rwUIM5o0S3nCXMliSvy5Dzx7/DJcI+SwgICv+IneSZwhBh1oSyEHA71A==",
++      "license": "BSD-3-Clause",
++      "dependencies": {
++        "es-define-property": "^1.0.1",
++        "side-channel": "^1.1.1"
++      },
++      "engines": {
++        "node": ">=0.6"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/ljharb"
++      }
++    },
++    "node_modules/range-parser": {
++      "version": "1.2.1",
++      "resolved": "https://registry.npmjs.org/range-parser/-/range-parser-1.2.1.tgz",
++      "integrity": "sha512-Hrgsx+orqoygnmhFbKaHE6c296J+HTAQXoxEF6gNupROmmGJRoyzfG3ccAveqCBrwr/2yxQ5BVd/GTl5agOwSg==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.6"
++      }
++    },
++    "node_modules/raw-body": {
++      "version": "2.5.3",
++      "resolved": "https://registry.npmjs.org/raw-body/-/raw-body-2.5.3.tgz",
++      "integrity": "sha512-s4VSOf6yN0rvbRZGxs8Om5CWj6seneMwK3oDb4lWDH0UPhWcxwOWw5+qk24bxq87szX1ydrwylIOp2uG1ojUpA==",
++      "license": "MIT",
++      "dependencies": {
++        "bytes": "~3.1.2",
++        "http-errors": "~2.0.1",
++        "iconv-lite": "~0.4.24",
++        "unpipe": "~1.0.0"
++      },
++      "engines": {
++        "node": ">= 0.8"
++      }
++    },
++    "node_modules/safe-buffer": {
++      "version": "5.2.1",
++      "resolved": "https://registry.npmjs.org/safe-buffer/-/safe-buffer-5.2.1.tgz",
++      "integrity": "sha512-rp3So07KcdmmKbGvgaNxQSJr7bGVSVk5S9Eq1F+ppbRo70+YeaDxkw5Dd8NPN+GD6bjnYm2VuPuCXmpuYvmCXQ==",
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/feross"
++        },
++        {
++          "type": "patreon",
++          "url": "https://www.patreon.com/feross"
++        },
++        {
++          "type": "consulting",
++          "url": "https://feross.org/support"
++        }
++      ],
++      "license": "MIT"
++    },
++    "node_modules/safer-buffer": {
++      "version": "2.1.2",
++      "resolved": "https://registry.npmjs.org/safer-buffer/-/safer-buffer-2.1.2.tgz",
++      "integrity": "sha512-YZo3K82SD7Riyi0E1EQPojLz7kpepnSQI9IyPbHHg1XXXevb5dJI7tpyN2ADxGcQbHG7vcyRHk0cbwqcQriUtg==",
++      "license": "MIT"
++    },
++    "node_modules/send": {
++      "version": "0.19.2",
++      "resolved": "https://registry.npmjs.org/send/-/send-0.19.2.tgz",
++      "integrity": "sha512-VMbMxbDeehAxpOtWJXlcUS5E8iXh6QmN+BkRX1GARS3wRaXEEgzCcB10gTQazO42tpNIya8xIyNx8fll1OFPrg==",
++      "license": "MIT",
++      "dependencies": {
++        "debug": "2.6.9",
++        "depd": "2.0.0",
++        "destroy": "1.2.0",
++        "encodeurl": "~2.0.0",
++        "escape-html": "~1.0.3",
++        "etag": "~1.8.1",
++        "fresh": "~0.5.2",
++        "http-errors": "~2.0.1",
++        "mime": "1.6.0",
++        "ms": "2.1.3",
++        "on-finished": "~2.4.1",
++        "range-parser": "~1.2.1",
++        "statuses": "~2.0.2"
++      },
++      "engines": {
++        "node": ">= 0.8.0"
++      }
++    },
++    "node_modules/send/node_modules/ms": {
++      "version": "2.1.3",
++      "resolved": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
++      "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==",
++      "license": "MIT"
++    },
++    "node_modules/serve-static": {
++      "version": "1.16.3",
++      "resolved": "https://registry.npmjs.org/serve-static/-/serve-static-1.16.3.tgz",
++      "integrity": "sha512-x0RTqQel6g5SY7Lg6ZreMmsOzncHFU7nhnRWkKgWuMTu5NN0DR5oruckMqRvacAN9d5w6ARnRBXl9xhDCgfMeA==",
++      "license": "MIT",
++      "dependencies": {
++        "encodeurl": "~2.0.0",
++        "escape-html": "~1.0.3",
++        "parseurl": "~1.3.3",
++        "send": "~0.19.1"
++      },
++      "engines": {
++        "node": ">= 0.8.0"
++      }
++    },
++    "node_modules/setprototypeof": {
++      "version": "1.2.0",
++      "resolved": "https://registry.npmjs.org/setprototypeof/-/setprototypeof-1.2.0.tgz",
++      "integrity": "sha512-E5LDX7Wrp85Kil5bhZv46j8jOeboKq5JMmYM3gVGdGH8xFpPWXUMsNrlODCrkoxMEeNi/XZIwuRvY4XNwYMJpw==",
++      "license": "ISC"
++    },
++    "node_modules/side-channel": {
++      "version": "1.1.1",
++      "resolved": "https://registry.npmjs.org/side-channel/-/side-channel-1.1.1.tgz",
++      "integrity": "sha512-6x6dK6zJdpTzF4sQeNYxwtvBzf6Eg4GtlesS94HOvTudUeyK2WXAaIfmDgsyslYrRBeFIlsi54AYsFGUuhmvrQ==",
++      "license": "MIT",
++      "dependencies": {
++        "es-errors": "^1.3.0",
++        "object-inspect": "^1.13.4",
++        "side-channel-list": "^1.0.1",
++        "side-channel-map": "^1.0.1",
++        "side-channel-weakmap": "^1.0.2"
++      },
++      "engines": {
++        "node": ">= 0.4"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/ljharb"
++      }
++    },
++    "node_modules/side-channel-list": {
++      "version": "1.0.1",
++      "resolved": "https://registry.npmjs.org/side-channel-list/-/side-channel-list-1.0.1.tgz",
++      "integrity": "sha512-mjn/0bi/oUURjc5Xl7IaWi/OJJJumuoJFQJfDDyO46+hBWsfaVM65TBHq2eoZBhzl9EchxOijpkbRC8SVBQU0w==",
++      "license": "MIT",
++      "dependencies": {
++        "es-errors": "^1.3.0",
++        "object-inspect": "^1.13.4"
++      },
++      "engines": {
++        "node": ">= 0.4"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/ljharb"
++      }
++    },
++    "node_modules/side-channel-map": {
++      "version": "1.0.1",
++      "resolved": "https://registry.npmjs.org/side-channel-map/-/side-channel-map-1.0.1.tgz",
++      "integrity": "sha512-VCjCNfgMsby3tTdo02nbjtM/ewra6jPHmpThenkTYh8pG9ucZ/1P8So4u4FGBek/BjpOVsDCMoLA/iuBKIFXRA==",
++      "license": "MIT",
++      "dependencies": {
++        "call-bound": "^1.0.2",
++        "es-errors": "^1.3.0",
++        "get-intrinsic": "^1.2.5",
++        "object-inspect": "^1.13.3"
++      },
++      "engines": {
++        "node": ">= 0.4"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/ljharb"
++      }
++    },
++    "node_modules/side-channel-weakmap": {
++      "version": "1.0.2",
++      "resolved": "https://registry.npmjs.org/side-channel-weakmap/-/side-channel-weakmap-1.0.2.tgz",
++      "integrity": "sha512-WPS/HvHQTYnHisLo9McqBHOJk2FkHO/tlpvldyrnem4aeQp4hai3gythswg6p01oSoTl58rcpiFAjF2br2Ak2A==",
++      "license": "MIT",
++      "dependencies": {
++        "call-bound": "^1.0.2",
++        "es-errors": "^1.3.0",
++        "get-intrinsic": "^1.2.5",
++        "object-inspect": "^1.13.3",
++        "side-channel-map": "^1.0.1"
++      },
++      "engines": {
++        "node": ">= 0.4"
++      },
++      "funding": {
++        "url": "https://github.com/sponsors/ljharb"
++      }
++    },
++    "node_modules/statuses": {
++      "version": "2.0.2",
++      "resolved": "https://registry.npmjs.org/statuses/-/statuses-2.0.2.tgz",
++      "integrity": "sha512-DvEy55V3DB7uknRo+4iOGT5fP1slR8wQohVdknigZPMpMstaKJQWhwiYBACJE3Ul2pTnATihhBYnRhZQHGBiRw==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.8"
++      }
++    },
++    "node_modules/toidentifier": {
++      "version": "1.0.1",
++      "resolved": "https://registry.npmjs.org/toidentifier/-/toidentifier-1.0.1.tgz",
++      "integrity": "sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=0.6"
++      }
++    },
++    "node_modules/type-is": {
++      "version": "1.6.18",
++      "resolved": "https://registry.npmjs.org/type-is/-/type-is-1.6.18.tgz",
++      "integrity": "sha512-TkRKr9sUTxEH8MdfuCSP7VizJyzRNMjj2J2do2Jr3Kym598JVdEksuzPQCnlFPW4ky9Q+iA+ma9BGm06XQBy8g==",
++      "license": "MIT",
++      "dependencies": {
++        "media-typer": "0.3.0",
++        "mime-types": "~2.1.24"
++      },
++      "engines": {
++        "node": ">= 0.6"
++      }
++    },
++    "node_modules/unpipe": {
++      "version": "1.0.0",
++      "resolved": "https://registry.npmjs.org/unpipe/-/unpipe-1.0.0.tgz",
++      "integrity": "sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.8"
++      }
++    },
++    "node_modules/utils-merge": {
++      "version": "1.0.1",
++      "resolved": "https://registry.npmjs.org/utils-merge/-/utils-merge-1.0.1.tgz",
++      "integrity": "sha512-pMZTvIkT1d+TFGvDOqodOclx0QWkkgi6Tdoa8gC8ffGAAqz9pzPTZWAybbsHHoED/ztMtkv/VoYTYyShUn81hA==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.4.0"
++      }
++    },
++    "node_modules/vary": {
++      "version": "1.1.2",
++      "resolved": "https://registry.npmjs.org/vary/-/vary-1.1.2.tgz",
++      "integrity": "sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 0.8"
++      }
++    }
++  }
++}
+diff --git a/package.json b/package.json
+new file mode 100644
+index 0000000..19be5d2
+--- /dev/null
++++ b/package.json
+@@ -0,0 +1,14 @@
++{
++  "name": "sassysolutions-interactive-preso",
++  "version": "1.0.0",
++  "main": "server.js",
++  "scripts": {
++    "start": "node server.js"
++  },
++  "engines": {
++    "node": "22.x"
++  },
++  "dependencies": {
++    "express": "^4.21.0"
++  }
++}
+diff --git a/scripts/sync-keys.sh b/scripts/sync-keys.sh
+new file mode 100755
+index 0000000..acd620a
+--- /dev/null
++++ b/scripts/sync-keys.sh
+@@ -0,0 +1,25 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++VAULT_APP="imansur-api-keys"
++CONSUMER_APPS=(
++  "sassysolutions-interactive-preso"
++  # Add future apps here
++)
++
++echo "Reading GEMINI_API_KEY from vault: $VAULT_APP"
++KEY=$(heroku config:get GEMINI_API_KEY --app "$VAULT_APP" 2>/dev/null || true)
++
++if [ -z "$KEY" ]; then
++  echo "GEMINI_API_KEY not found on $VAULT_APP"
++  exit 1
++fi
++
++for APP in "${CONSUMER_APPS[@]}"; do
++  echo -n "  → $APP ... "
++  if heroku config:set GEMINI_API_KEY="$KEY" --app "$APP" >/dev/null 2>&1; then
++    echo "done"
++  else
++    echo "FAILED"
++  fi
++done
+diff --git a/server.js b/server.js
+new file mode 100644
+index 0000000..ef213e2
+--- /dev/null
++++ b/server.js
+@@ -0,0 +1,455 @@
++// ============================================================
++// server.js — Express server for Interactive Customer Presentations
++// Heroku Private Space with Gemini AI backend
++// ============================================================
++// Set GEMINI_API_KEY as a Heroku config var.
++// ============================================================
++
++const express = require('express');
++const path = require('path');
++
++const app = express();
++const PORT = process.env.PORT || 3000;
++
++// ============================================================
++// Configuration
++// ============================================================
++const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
++const MAX_SCRAPE_BYTES = 3_000_000;
++const SCRAPE_TIMEOUT_MS = 15_000;
++const USER_AGENT = 'Mozilla/5.0 (compatible; interactive-customer-presentations/1.0)';
++
++// Image generation
++const IMAGE_GEN_MODEL = 'gemini-3.1-flash-image';
++const IMAGE_GEN_TIMEOUT_MS = 30_000;
++const MAX_IMAGE_GEN_BATCH = 12;
++
++// Gemini model mapping by tier
++// IMPORTANT: Verify these models are available for your key before deploying.
++// List models: curl "https://generativelanguage.googleapis.com/v1beta/models?key=$KEY"
++const TIER_MODELS = {
++  fast: 'gemini-3.5-flash-lite',
++  balanced: 'gemini-3.5-flash',
++  powerful: 'gemini-3.1-pro-preview'
++};
++const DEFAULT_MODEL = TIER_MODELS.balanced;
++
++// Rate limiting — in-memory per-IP
++const RATE_LIMIT_WINDOW_MS = 60_000;
++const RATE_LIMIT_MAX = 30;
++const rateBuckets = new Map();
++
++// Tracker upstream
++const TRACKER_URL = 'https://decktools-tracker.mtoolin.workers.dev/track';
++
++// ============================================================
++// Middleware
++// ============================================================
++app.use(express.json({ limit: '1mb' }));
++
++// CORS for API routes (same-origin won't need it, but useful for dev)
++app.use('/api', (req, res, next) => {
++  res.set({
++    'Access-Control-Allow-Origin': '*',
++    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
++    'Access-Control-Allow-Headers': 'Content-Type',
++    'Access-Control-Max-Age': '86400'
++  });
++  if (req.method === 'OPTIONS') return res.sendStatus(204);
++  next();
++});
++
++// ============================================================
++// API Routes
++// ============================================================
++
++// --- Health Check ---
++app.get('/api/health', (req, res) => {
++  res.json({
++    ok: true,
++    service: 'interactive-customer-presentations',
++    version: 1,
++    endpoints: [
++      'GET /api/scrape',
++      'POST /api/llm',
++      'POST /api/generate-images',
++      'POST /api/track',
++      'GET /api/health'
++    ],
++    llm_configured: Boolean(GEMINI_API_KEY)
++  });
++});
++
++// --- Tracker Endpoint (replaces Cloudflare Worker /imranAI/track) ---
++app.post('/api/track', async (req, res) => {
++  try {
++    const body = JSON.stringify(req.body);
++    fetch(TRACKER_URL, {
++      method: 'POST',
++      headers: { 'content-type': 'application/json' },
++      body,
++    }).catch(() => {});
++  } catch (_) {}
++  res.json({ ok: true });
++});
++
++// --- Scrape Endpoint ---
++app.get('/api/scrape', async (req, res) => {
++  const target = req.query.url;
++  if (!target) return res.status(400).json({ error: 'missing_url' });
++
++  let targetURL;
++  try { targetURL = new URL(target); }
++  catch { return res.status(400).json({ error: 'invalid_url' }); }
++
++  if (targetURL.protocol !== 'https:' && targetURL.protocol !== 'http:') {
++    return res.status(400).json({ error: 'bad_protocol', got: targetURL.protocol });
++  }
++  if (isDangerousHost(targetURL.hostname)) {
++    return res.status(403).json({ error: 'blocked_host', hostname: targetURL.hostname });
++  }
++
++  try {
++    const controller = new AbortController();
++    const timeout = setTimeout(() => controller.abort(), SCRAPE_TIMEOUT_MS);
++
++    const upstream = await fetch(targetURL.toString(), {
++      method: 'GET',
++      redirect: 'follow',
++      headers: {
++        'User-Agent': USER_AGENT,
++        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
++        'Accept-Language': 'en-US,en;q=0.9'
++      },
++      signal: controller.signal
++    });
++    clearTimeout(timeout);
++
++    if (!upstream.ok) {
++      return res.status(502).json({ error: 'upstream_status', status: upstream.status });
++    }
++
++    const contentType = upstream.headers.get('content-type') || 'text/html; charset=utf-8';
++    if (!/^text\//i.test(contentType) && !/(json|xml|xhtml)/i.test(contentType)) {
++      return res.status(415).json({ error: 'not_text', contentType });
++    }
++
++    const reader = upstream.body.getReader();
++    const chunks = [];
++    let total = 0;
++    while (true) {
++      const { done, value } = await reader.read();
++      if (done) break;
++      total += value.length;
++      if (total > MAX_SCRAPE_BYTES) {
++        try { reader.cancel(); } catch (_) {}
++        return res.status(413).json({ error: 'too_large', limitBytes: MAX_SCRAPE_BYTES });
++      }
++      chunks.push(value);
++    }
++
++    const body = Buffer.concat(chunks);
++    res.set({
++      'Content-Type': contentType,
++      'Cache-Control': 'public, max-age=600',
++      'X-Scraper-Source': targetURL.hostname,
++      'X-Scraper-Bytes': String(total)
++    });
++    res.send(body);
++  } catch (err) {
++    const code = err && err.name === 'AbortError' ? 'timeout' : 'network_error';
++    res.status(502).json({ error: code, message: (err && err.message) || 'unknown' });
++  }
++});
++
++// --- LLM Endpoint (Gemini API with tool-calling support) ---
++app.post('/api/llm', async (req, res) => {
++  if (!GEMINI_API_KEY) {
++    return res.status(503).json({
++      error: 'llm_not_configured',
++      hint: 'Set GEMINI_API_KEY config var on this Heroku app'
++    });
++  }
++
++  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'unknown';
++  const rl = checkRateLimit(ip);
++  if (!rl.ok) {
++    return res.status(429).json({ error: 'rate_limited', retryAfterMs: rl.retryAfterMs });
++  }
++
++  const { prompt, system, tier, maxTokens, tools, toolChoice } = req.body;
++
++  if (!prompt || typeof prompt !== 'string') {
++    return res.status(400).json({ error: 'missing_prompt' });
++  }
++  if (prompt.length > 500_000) {
++    return res.status(413).json({ error: 'prompt_too_long' });
++  }
++
++  const chosenTier = ['fast', 'balanced', 'powerful'].includes(tier) ? tier : 'balanced';
++  const model = TIER_MODELS[chosenTier] || DEFAULT_MODEL;
++  const tokens = Math.min(Math.max(parseInt(maxTokens, 10) || 8192, 100), 65536);
++
++  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
++
++  const geminiBody = {
++    contents: [{ parts: [{ text: prompt }] }],
++    generationConfig: { maxOutputTokens: tokens }
++  };
++
++  // System instruction
++  if (system && typeof system === 'string' && system.trim()) {
++    geminiBody.systemInstruction = { parts: [{ text: system }] };
++  }
++
++  // Tool calling support — translate from client format to Gemini format
++  const hasTools = Array.isArray(tools) && tools.length > 0;
++  if (hasTools) {
++    geminiBody.tools = [{
++      functionDeclarations: tools.map(t => ({
++        name: t.name,
++        description: t.description || '',
++        parameters: t.parameters || {}
++      }))
++    }];
++
++    // If a specific tool is requested, force the model to use it
++    if (toolChoice && typeof toolChoice === 'string') {
++      geminiBody.toolConfig = {
++        functionCallingConfig: {
++          mode: 'ANY',
++          allowedFunctionNames: [toolChoice]
++        }
++      };
++    }
++  }
++
++  try {
++    const controller = new AbortController();
++    const timeout = setTimeout(() => controller.abort(), 120_000);
++
++    const upstream = await fetch(geminiUrl, {
++      method: 'POST',
++      headers: { 'Content-Type': 'application/json' },
++      body: JSON.stringify(geminiBody),
++      signal: controller.signal
++    });
++    clearTimeout(timeout);
++
++    if (upstream.status === 400) {
++      const body = await upstream.text().catch(() => '');
++      return res.status(502).json({ error: 'gemini_bad_request', body: body.slice(0, 500) });
++    }
++    if (upstream.status === 401 || upstream.status === 403) {
++      return res.status(502).json({ error: 'gemini_auth_failed' });
++    }
++    if (upstream.status === 429) {
++      return res.status(429).json({ error: 'gemini_rate_limited' });
++    }
++    if (!upstream.ok) {
++      const body = await upstream.text().catch(() => '');
++      return res.status(502).json({ error: 'gemini_failed', status: upstream.status, body: body.slice(0, 500) });
++    }
++
++    const data = await upstream.json();
++    const parts = data?.candidates?.[0]?.content?.parts || [];
++    const usage = data.usageMetadata || null;
++
++    // Check for function call response (tool calling mode)
++    if (hasTools) {
++      const fnCallPart = parts.find(p => p.functionCall);
++      if (fnCallPart) {
++        return res.json({
++          result: fnCallPart.functionCall.args || {},
++          functionName: fnCallPart.functionCall.name,
++          model_used: model,
++          tier: chosenTier,
++          usage
++        });
++      }
++
++      // Fallback: model returned text instead of a function call.
++      // Try to parse the text as JSON (some models do this).
++      const textContent = parts
++        .filter(p => p.text)
++        .map(p => p.text)
++        .join('');
++
++      if (textContent) {
++        // Try to extract JSON from the text response
++        const jsonMatch = textContent.match(/\{[\s\S]*\}/);
++        if (jsonMatch) {
++          try {
++            const parsed = JSON.parse(jsonMatch[0]);
++            return res.json({
++              result: parsed,
++              functionName: toolChoice || 'unknown',
++              model_used: model,
++              tier: chosenTier,
++              usage,
++              _fallback: 'text_to_json'
++            });
++          } catch (_) {}
++        }
++      }
++
++      return res.status(502).json({
++        error: 'no_function_call',
++        hint: 'Model did not return a function call. Try a different tier or simplify the prompt.',
++        text_preview: (textContent || '').slice(0, 300)
++      });
++    }
++
++    // Plain text generation mode (no tools)
++    const text = parts
++      .filter(p => p.text)
++      .map(p => p.text)
++      .join('') || '';
++
++    if (!text) {
++      return res.status(502).json({ error: 'gemini_empty_response' });
++    }
++
++    res.json({
++      text,
++      model_used: model,
++      tier: chosenTier,
++      usage
++    });
++  } catch (err) {
++    const code = err && err.name === 'AbortError' ? 'timeout' : 'network_error';
++    res.status(502).json({ error: code, message: (err && err.message) || 'unknown' });
++  }
++});
++
++// --- Batch Image Generation (Gemini) ---
++app.post('/api/generate-images', async (req, res) => {
++  if (!GEMINI_API_KEY) {
++    return res.status(503).json({ error: 'llm_not_configured', hint: 'Set GEMINI_API_KEY' });
++  }
++
++  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'unknown';
++  const rl = checkRateLimit(ip);
++  if (!rl.ok) return res.status(429).json({ error: 'rate_limited', retryAfterMs: rl.retryAfterMs });
++
++  const { prompts } = req.body;
++  if (!Array.isArray(prompts) || prompts.length === 0 || prompts.length > MAX_IMAGE_GEN_BATCH) {
++    return res.status(400).json({ error: 'invalid_prompts', max: MAX_IMAGE_GEN_BATCH });
++  }
++
++  for (const p of prompts) {
++    if (!p || !p.slot || !p.prompt || typeof p.prompt !== 'string' || p.prompt.length > 2000) {
++      return res.status(400).json({ error: 'invalid_prompt_entry', slot: p?.slot });
++    }
++  }
++
++  const results = await Promise.allSettled(
++    prompts.map(async (p) => {
++      const result = await generateImage(p.prompt);
++      return { slot: p.slot, ...result };
++    })
++  );
++
++  const output = results.map((r, i) => {
++    if (r.status === 'fulfilled') return r.value;
++    return { slot: prompts[i].slot, error: r.reason?.message || 'generation_failed' };
++  });
++
++  res.json({ results: output });
++});
++
++// Shared image generation helper
++async function generateImage(prompt) {
++  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${IMAGE_GEN_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
++
++  const geminiBody = {
++    contents: [{ parts: [{ text: prompt }] }],
++    generationConfig: { responseModalities: ['IMAGE'] }
++  };
++
++  const controller = new AbortController();
++  const timeout = setTimeout(() => controller.abort(), IMAGE_GEN_TIMEOUT_MS);
++
++  const upstream = await fetch(geminiUrl, {
++    method: 'POST',
++    headers: { 'Content-Type': 'application/json' },
++    body: JSON.stringify(geminiBody),
++    signal: controller.signal
++  });
++  clearTimeout(timeout);
++
++  if (!upstream.ok) {
++    const body = await upstream.text().catch(() => '');
++    throw new Error(`Gemini ${upstream.status}: ${body.slice(0, 200)}`);
++  }
++
++  const data = await upstream.json();
++  const parts = data?.candidates?.[0]?.content?.parts || [];
++  const imagePart = parts.find(p => p.inlineData);
++
++  if (!imagePart) {
++    throw new Error('No image in Gemini response');
++  }
++
++  const mime = imagePart.inlineData.mimeType || 'image/jpeg';
++  const imageData = `data:${mime};base64,${imagePart.inlineData.data}`;
++
++  return { imageData };
++}
++
++// ============================================================
++// Static file serving (AFTER API routes)
++// ============================================================
++app.use(express.static(path.join(__dirname), {
++  extensions: ['html'],
++  maxAge: '1h'
++}));
++
++// Fallback to index.html for SPA-style routing
++app.get('*', (req, res) => {
++  res.sendFile(path.join(__dirname, 'index.html'));
++});
++
++// ============================================================
++// Start server — MUST use '::' for Heroku Fir Private Spaces (IPv6)
++// ============================================================
++app.listen(PORT, '::', () => {
++  console.log(`interactive-customer-presentations running on port ${PORT} (IPv6 dual-stack)`);
++  console.log(`LLM backend: ${GEMINI_API_KEY ? 'Gemini API configured' : 'NOT configured (set GEMINI_API_KEY)'}`);
++});
++
++// ============================================================
++// Utilities
++// ============================================================
++function isDangerousHost(host) {
++  if (!host) return true;
++  const h = host.toLowerCase();
++  if (h === 'localhost' || h === 'localhost.localdomain') return true;
++  if (h === 'metadata.google.internal') return true;
++  if (h.endsWith('.internal') || h.endsWith('.local')) return true;
++  if (h === '169.254.169.254') return true;
++  if (/^(10|127)\./.test(h)) return true;
++  if (/^192\.168\./.test(h)) return true;
++  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
++  if (/^169\.254\./.test(h)) return true;
++  if (h === '0.0.0.0') return true;
++  if (h === '::1' || h.startsWith('fe80:') || h.startsWith('fc00:') || h.startsWith('fd00:')) return true;
++  return false;
++}
++
++function checkRateLimit(ip) {
++  const now = Date.now();
++  let bucket = rateBuckets.get(ip);
++  if (!bucket || now >= bucket.resetAt) {
++    bucket = { count: 0, resetAt: now + RATE_LIMIT_WINDOW_MS };
++    rateBuckets.set(ip, bucket);
++  }
++  bucket.count++;
++  if (rateBuckets.size > 5000) {
++    for (const [k, v] of rateBuckets) if (v.resetAt < now) rateBuckets.delete(k);
++  }
++  if (bucket.count > RATE_LIMIT_MAX) {
++    return { ok: false, retryAfterMs: Math.max(0, bucket.resetAt - now) };
++  }
++  return { ok: true };
++}
+-- 
+2.39.5
+
