@@ -80,24 +80,6 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Temporary debug endpoint — remove after testing
-app.get('/api/debug-gemini', async (req, res) => {
-  const key = process.env.GEMINI_API_KEY;
-  const model = 'gemini-2.0-flash';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
-  try {
-    const r = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: 'Say hello in one word' }] }] })
-    });
-    const body = await r.text();
-    res.json({ status: r.status, keyPrefix: key?.slice(0, 8), model, body: body.slice(0, 1000) });
-  } catch (e) {
-    res.json({ error: e.message, keyPrefix: key?.slice(0, 8) });
-  }
-});
-
 // --- Tracker Endpoint (replaces Cloudflare Worker /imranAI/track) ---
 app.post('/api/track', async (req, res) => {
   try {
@@ -208,7 +190,11 @@ app.post('/api/llm', async (req, res) => {
   const model = TIER_MODELS[chosenTier] || DEFAULT_MODEL;
   const tokens = Math.min(Math.max(parseInt(maxTokens, 10) || 8192, 100), 65536);
 
+  // Tool calling support — translate from client format to Gemini format
+  const hasTools = Array.isArray(tools) && tools.length > 0;
+
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+  console.log(`[LLM] tier=${chosenTier} model=${model} promptLen=${prompt.length} tools=${hasTools ? tools.length : 0}`);
 
   const geminiBody = {
     contents: [{ parts: [{ text: prompt }] }],
@@ -219,9 +205,6 @@ app.post('/api/llm', async (req, res) => {
   if (system && typeof system === 'string' && system.trim()) {
     geminiBody.systemInstruction = { parts: [{ text: system }] };
   }
-
-  // Tool calling support — translate from client format to Gemini format
-  const hasTools = Array.isArray(tools) && tools.length > 0;
   if (hasTools) {
     geminiBody.tools = [{
       functionDeclarations: tools.map(t => ({
@@ -256,16 +239,21 @@ app.post('/api/llm', async (req, res) => {
 
     if (upstream.status === 400) {
       const body = await upstream.text().catch(() => '');
+      console.error('[GEMINI 400 BAD_REQUEST]', body.slice(0, 800));
       return res.status(502).json({ error: 'gemini_bad_request', body: body.slice(0, 500) });
     }
     if (upstream.status === 401 || upstream.status === 403) {
+      const body = await upstream.text().catch(() => '');
+      console.error('[GEMINI AUTH FAILED]', upstream.status, body.slice(0, 800));
       return res.status(502).json({ error: 'gemini_auth_failed' });
     }
     if (upstream.status === 429) {
+      console.error('[GEMINI RATE LIMITED]');
       return res.status(429).json({ error: 'gemini_rate_limited' });
     }
     if (!upstream.ok) {
       const body = await upstream.text().catch(() => '');
+      console.error('[GEMINI ERROR]', upstream.status, body.slice(0, 800));
       return res.status(502).json({ error: 'gemini_failed', status: upstream.status, body: body.slice(0, 500) });
     }
 
@@ -434,6 +422,7 @@ app.get('*', (req, res) => {
 app.listen(PORT, '::', () => {
   console.log(`interactive-customer-presentations running on port ${PORT} (IPv6 dual-stack)`);
   console.log(`LLM backend: ${GEMINI_API_KEY ? 'Gemini API configured' : 'NOT configured (set GEMINI_API_KEY)'}`);
+  console.log(`GEMINI_API_KEY prefix: ${GEMINI_API_KEY ? GEMINI_API_KEY.slice(0, 8) + '...' : 'EMPTY'}`);
 });
 
 // ============================================================
