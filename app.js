@@ -8,66 +8,20 @@
 //
 // Interview → Deck generation:
 //   InterviewController walks Q1–Q16 with rich widgets. On completion, we send
-//   the full deckContext direct to the SF LLM Gateway (BYOK) with turn:'generate'
+//   the full deckContext to the server-side Gemini backend with turn:'generate'
 //   and apply the returned patches to deckDoc — one big rewrite of the reference
-//   deck into the customer's deck. (Tracker events still go through the worker.)
+//   deck into the customer's deck.
 //
 // Slide-edit mode:
 //   When a slide is scoped and the user types a message, we send turn:'edit'
 //   with the current slide's HTML and apply the returned patches.
 
 import { InterviewController } from './interview.js';
-import { callLLM, applyPatches, getWorkerUrl, suggestAnswer } from './llm.js';
+import { callLLM, applyPatches, suggestAnswer } from './llm.js';
 
 const LS = {
-  workerUrl: 'icp.workerUrl',
-  apiKey: 'icp.apiKey',
-  byokKey: 'icp.byokKey',
   sessionId: 'icp.sessionId',
 };
-
-const BYOK_TRIGGER_CODES = ['no_api_key'];
-
-function isByokTrigger(err) {
-  return !!err && (BYOK_TRIGGER_CODES.includes(err.code) || err.status === 401);
-}
-
-function showByokOnboarding(err, retryFn) {
-  const modal = document.getElementById('byok-modal');
-  const detail = document.getElementById('byok-error-detail');
-  const keyInput = document.getElementById('byok-key-input');
-  const saveBtn = document.getElementById('byok-save');
-  const cancelBtn = document.getElementById('byok-cancel');
-
-  if (err && err.userMessage) {
-    detail.textContent = err.userMessage;
-    detail.style.display = '';
-  } else {
-    detail.textContent = '';
-    detail.style.display = 'none';
-  }
-
-  const close = () => {
-    modal.classList.remove('visible');
-    modal.hidden = true;
-  };
-
-  saveBtn.onclick = () => {
-    const key = keyInput.value.trim();
-    if (!key) return;
-    localStorage.setItem(LS.byokKey, key);
-    keyInput.value = '';
-    close();
-    if (retryFn) retryFn();
-  };
-  cancelBtn.onclick = () => close();
-  modal.onclick = (e) => { if (e.target === modal) close(); };
-
-  keyInput.value = '';
-  modal.hidden = false;
-  modal.classList.add('visible');
-  keyInput.focus();
-}
 
 const SLIDE_LABEL_OVERRIDES = { 0: 'Hero', 11: 'Attribution' };
 
@@ -231,18 +185,11 @@ function startInterview() {
       await generateDeck(answers);
     },
     onSuggest: async (questionId, questionSchema, answersSoFar) => {
-      try {
-        return await suggestAnswer({
-          questionId,
-          deckContext: { answers: answersSoFar },
-          questionSchema,
-        });
-      } catch (err) {
-        if (isByokTrigger(err)) {
-          showByokOnboarding(err, null);
-        }
-        throw err;
-      }
+      return await suggestAnswer({
+        questionId,
+        deckContext: { answers: answersSoFar },
+        questionSchema,
+      });
     },
   });
   state.interview.start();
@@ -287,11 +234,7 @@ async function generateDeck(answers) {
     appendMessage('assistant', 'Click any slide on the right to refine it — I can rewrite copy, swap the accent, tighten the hero, whatever you need.');
   } catch (err) {
     console.error(err);
-    if (isByokTrigger(err)) {
-      showByokOnboarding(err, () => generateDeck(answers));
-    } else {
-      appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
-    }
+    appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
   } finally {
     setBusy(false);
   }
@@ -326,11 +269,7 @@ async function sendScopedEdit(text) {
     if (skipped.length) console.warn('skipped patches', skipped);
   } catch (err) {
     console.error(err);
-    if (isByokTrigger(err)) {
-      showByokOnboarding(err, () => sendScopedEdit(text));
-    } else {
-      appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
-    }
+    appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
   } finally {
     setBusy(false);
   }
@@ -439,22 +378,6 @@ function wireNavFooter() {
 
 // ------------------------------------------------------------------ Topbar
 function wireTopbar() {
-  const modal = document.getElementById('settings-modal');
-  const keyInput = document.getElementById('setting-api-key');
-
-  document.getElementById('btn-settings').addEventListener('click', () => {
-    keyInput.value = localStorage.getItem(LS.byokKey) || localStorage.getItem(LS.apiKey) || '';
-    modal.classList.add('visible');
-  });
-  document.getElementById('settings-cancel').addEventListener('click', () => modal.classList.remove('visible'));
-  document.getElementById('settings-save').addEventListener('click', () => {
-    const key = keyInput.value.trim();
-    if (key) localStorage.setItem(LS.byokKey, key); else localStorage.removeItem(LS.byokKey);
-    localStorage.removeItem(LS.apiKey);
-    modal.classList.remove('visible');
-  });
-  modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('visible'); });
-
   document.getElementById('btn-export').addEventListener('click', () => {
     if (!state.deckDoc) return;
     const html = '<!DOCTYPE html>\n' + state.deckDoc.documentElement.outerHTML;
@@ -471,10 +394,7 @@ function wireTopbar() {
 
 // ------------------------------------------------------------------ Tracker
 function fireTrackerEvent(payload) {
-  const workerUrl = getWorkerUrl();
-  if (!workerUrl) return;
-  const url = workerUrl.replace(/\/+$/, '') + '/imranAI/track';
-  fetch(url, {
+  fetch('/api/track', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({

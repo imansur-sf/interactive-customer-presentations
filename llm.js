@@ -1,59 +1,21 @@
-// LLM plumbing — direct BYOK call to the Salesforce LLM Gateway Express.
+// LLM plumbing — same-origin call to the Express /api/llm endpoint.
 //
-// Topology (a): the browser posts OpenAI-shape chat/completions directly to
-// the SF LLM Gateway using the user's BYOK key from localStorage. No worker
-// in the LLM auth path. Requires the Salesforce VPN to reach the gateway host.
+// The server proxies requests to Google Gemini API with the API key
+// secured as a Heroku config var. No client-side API key needed.
 //
-// The worker still exists to pass /imranAI/track events through to the
-// decktools tracker, but it is NOT called from this file.
+// The system prompt (skill context) is still assembled client-side
+// and sent to the server, which forwards it to Gemini.
 
-export const SF_GATEWAY_URL =
-  'https://eng-ai-model-gateway.sfproxy.devx-preprod.aws-esvc1-useast2.aws.sfdc.cl/v1/chat/completions';
-
-// Kept for back-compat with older imports (Settings UI, etc.). Unused for LLM.
-export const DEFAULT_LEGACY_WORKER_URL = 'https://icp-imranai-llm.imansur.workers.dev';
-export const DEFAULT_WORKER_URL = DEFAULT_LEGACY_WORKER_URL;
-
-const LS = {
-  workerUrl: 'icp.workerUrl',
-  workerUrlLegacy: 'icp.legacyWorkerUrl',
-  byokKey: 'icp.byokKey',
-  apiKeyLegacy: 'icp.apiKey',
+// Tier mapping: old model names → Gemini tiers
+// The server picks the actual Gemini model based on tier.
+const TIER_MAP = {
+  opus:   'powerful',
+  sonnet: 'balanced',
+  haiku:  'fast',
 };
-
-const MODELS = {
-  opus:   'claude-sonnet-4-5-20250929',
-  sonnet: 'claude-sonnet-4-20250514',
-  haiku:  'claude-3-5-sonnet-20240620-v1',
-};
-const DEFAULT_MODEL = 'opus';
+const DEFAULT_TIER = 'powerful';
 
 // -------------------- Public API --------------------
-export function getWorkerUrl() {
-  return (
-    localStorage.getItem(LS.workerUrl) ||
-    localStorage.getItem(LS.workerUrlLegacy) ||
-    DEFAULT_LEGACY_WORKER_URL
-  ).trim();
-}
-export function getLegacyWorkerUrl() { return getWorkerUrl(); }
-
-export function getApiKey() {
-  return (
-    localStorage.getItem(LS.byokKey) ||
-    localStorage.getItem(LS.apiKeyLegacy) ||
-    ''
-  ).trim();
-}
-
-/**
- * Detect which upstream path this call should use. With topology (a) there is
- * only one path — direct browser → SF gateway — plus a "no key" sentinel that
- * the UI uses to trigger the BYOK onboarding modal.
- */
-export function detectRoute() {
-  return getApiKey() ? 'gateway-direct' : 'no-key';
-}
 
 /** Convenience wrapper for the Suggest button */
 export async function suggestAnswer({ questionId, deckContext, questionSchema }) {
@@ -69,25 +31,16 @@ export async function suggestAnswer({ questionId, deckContext, questionSchema })
 
 /**
  * The unified LLM call. Builds the system prompt and tool schema in-browser,
- * then posts OpenAI-shape chat/completions to the SF LLM Gateway with the
- * BYOK key from localStorage.
+ * then posts to the same-origin /api/llm endpoint which proxies to Gemini.
  */
 export async function callLLM(payload) {
-  return callGateway(payload);
+  return callServer(payload);
 }
 // Back-compat alias for older imports.
 export const callWorker = callLLM;
 
-// -------------------- Direct SF Gateway path --------------------
-async function callGateway(payload) {
-  const key = getApiKey();
-  if (!key) {
-    throwUser(
-      'no_api_key',
-      'No SF LLM Gateway key set. Paste your key in Settings to enable the AI turns.'
-    );
-  }
-
+// -------------------- Server proxy path --------------------
+async function callServer(payload) {
   const {
     turn = 'answer',
     questionId,
@@ -95,86 +48,81 @@ async function callGateway(payload) {
     userMessage = '',
     deckContext = {},
     questionSchema,
-    model = DEFAULT_MODEL,
+    model = 'opus',
   } = payload || {};
 
-  const modelId = MODELS[model] || MODELS[DEFAULT_MODEL];
+  const tier = TIER_MAP[model] || DEFAULT_TIER;
   const systemText = await buildSystemText();
   const { userPrompt, tool } = buildTurnPrompt({
     turn, questionId, slideId, userMessage, deckContext, questionSchema,
   });
 
   const body = {
-    model: modelId,
-    max_tokens: 4096,
-    messages: [
-      { role: 'system', content: systemText },
-      { role: 'user',   content: userPrompt },
-    ],
+    prompt: userPrompt,
+    system: systemText,
+    tier,
+    maxTokens: 8192,
     tools: [{
-      type: 'function',
-      function: {
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.input_schema,
-      },
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.input_schema,
     }],
-    tool_choice: { type: 'function', function: { name: tool.name } },
+    toolChoice: tool.name,
   };
 
   let res;
   try {
-    res = await fetch(SF_GATEWAY_URL, {
+    res = await fetch('/api/llm', {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${key}`,
-        'content-type': 'application/json',
-      },
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     });
   } catch (err) {
     throwUser(
-      'gateway_unreachable',
-      `SF LLM Gateway not reachable: ${err.message}. Are you on the Salesforce VPN?`
+      'server_unreachable',
+      `Server not reachable: ${err.message}.`
     );
   }
 
   const raw = await res.text();
   const data = safeParse(raw);
+
   if (!res.ok) {
-    const detail = data?.error?.message || raw.slice(0, 400);
+    const detail = data?.error || data?.body || raw.slice(0, 400);
     throwUser(
-      `gateway_${res.status}`,
+      `server_${res.status}`,
       renderErrorMessage(res.status, detail),
       { status: res.status, detail }
     );
   }
-  if (!data) throwUser('bad_upstream_json', 'Gateway returned invalid JSON.');
+  if (!data) throwUser('bad_upstream_json', 'Server returned invalid JSON.');
 
-  const choice = data.choices?.[0];
-  const toolCall = choice?.message?.tool_calls?.[0];
-  if (!toolCall) {
-    const preview = choice?.message?.content?.slice?.(0, 300) || 'no tool_calls in response';
+  // The server returns { result: {...args}, functionName, model_used, tier, usage }
+  const args = data.result;
+  if (!args) {
+    const preview = data.text_preview || data.text?.slice?.(0, 300) || 'no result in response';
     throwUser('no_tool_use', `Model did not return a tool call: ${preview}`);
   }
-  const rawArgs = toolCall.function?.arguments;
-  const args = typeof rawArgs === 'string' ? safeParse(rawArgs) : rawArgs;
-  if (!args) throwUser('bad_tool_arguments', 'Tool call arguments were not valid JSON.');
 
-  return { ...args, _meta: { provider: 'llm-gateway', model: modelId, usage: data.usage } };
+  return { ...args, _meta: { provider: 'gemini', model: data.model_used, tier: data.tier, usage: data.usage } };
 }
 
 function renderErrorMessage(status, detail) {
-  if (status === 401) return 'Auth failed. Double-check your SF LLM Gateway key in Settings.';
-  if (status === 403) return 'Access denied. Your key may not have permission for this model.';
-  if (status === 429) return 'Rate limited by the gateway. Wait a moment and try again.';
-  if (status === 503) return 'The gateway upstream failed. Try again in a moment.';
+  if (status === 429) return 'Rate limited. Wait a moment and try again.';
+  if (status === 503) return 'AI backend not configured. Contact the administrator.';
+  if (status === 502) {
+    if (typeof detail === 'string') {
+      if (detail.includes('auth_failed')) return 'AI authentication failed. Contact the administrator.';
+      if (detail.includes('rate_limited')) return 'AI rate limited. Wait a moment and try again.';
+    }
+    return 'AI backend error. Try again in a moment.';
+  }
   const trimmed = typeof detail === 'string' ? detail.slice(0, 200) : '';
-  if (status >= 500) return `Gateway returned ${status}${trimmed ? ` (${trimmed})` : ''}.`;
+  if (status >= 500) return `Server returned ${status}${trimmed ? ` (${trimmed})` : ''}.`;
   return trimmed || `Request failed (${status}).`;
 }
 
-// -------------------- System prompt (was on the worker) --------------------
+// -------------------- System prompt --------------------
 let _skillCache = null;
 async function loadSkillContext() {
   if (_skillCache) return _skillCache;
@@ -205,7 +153,7 @@ async function buildSystemText() {
   const { skill, style, principles, composer } = await loadSkillContext();
   const preamble = [
     'You are the sf-decktools narrative deck builder.',
-    'You have been loaded with the full Salesforce narrative deck design system below — the same skill that Claude Code users get when they install sf-decktools.',
+    'You have been loaded with the full Salesforce narrative deck design system below.',
     'Follow every rule in SKILL.md, STYLE-GUIDE.md, and SLIDE-PRINCIPLES.md strictly. They are non-negotiable.',
     'Your job on each turn is to return a JSON tool call describing patches to apply to the deck HTML.',
     '',
