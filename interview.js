@@ -290,6 +290,7 @@ export class InterviewController {
       suggestBtn.innerHTML = '<span class="spinner"></span>Suggesting…';
       try {
         const { values = {}, rationale } = await this.onSuggest(q.id, q, this.answers);
+        console.log('[suggest] question:', q.id, 'values:', JSON.stringify(values, null, 2));
         // Apply suggested values via each field's setter
         for (const [key, val] of Object.entries(values)) {
           const set = setters[key];
@@ -432,6 +433,8 @@ export class InterviewController {
           arr.slice(0, 2).forEach((row, i) => {
             if (!row) return;
             const refs = inputRefs[i];
+            // The AI may return the use case name as "title" or "name" — handle both
+            if (row.name && !row.title) row.title = row.name;
             ['title', 'ttv', 'before', 'after'].forEach((k) => {
               if (refs[k] && row[k] != null) refs[k].value = String(row[k]);
             });
