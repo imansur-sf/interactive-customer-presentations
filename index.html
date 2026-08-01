@@ -586,22 +586,66 @@
       flex-direction: column;
       gap: 8px;
     }
+    .q-kpi-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
     .q-kpi-row {
       display: grid;
-      grid-template-columns: 62px 70px 56px 1fr;
+      grid-template-columns: 72px 70px 56px 1fr 26px;
       gap: 6px;
       align-items: center;
     }
-    .q-kpi-tag {
+    .q-kpi-toggle {
       font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 0.06em;
-      color: rgba(0, 179, 255, 0.85);
-      background: rgba(0, 179, 255, 0.08);
-      border: 1px solid rgba(0, 179, 255, 0.25);
-      padding: 4px 6px;
+      padding: 5px 6px;
       border-radius: 4px;
       text-align: center;
+      cursor: pointer;
+      font-family: inherit;
+      font-weight: 600;
+      border: 1px solid;
+      transition: all 0.15s ease;
+    }
+    .q-kpi-toggle--reduce {
+      color: rgba(0, 179, 255, 0.85);
+      background: rgba(0, 179, 255, 0.08);
+      border-color: rgba(0, 179, 255, 0.25);
+    }
+    .q-kpi-toggle--reduce:hover {
+      background: rgba(0, 179, 255, 0.15);
+      border-color: rgba(0, 179, 255, 0.45);
+    }
+    .q-kpi-toggle--improve {
+      color: rgba(0, 210, 130, 0.9);
+      background: rgba(0, 210, 130, 0.08);
+      border-color: rgba(0, 210, 130, 0.25);
+    }
+    .q-kpi-toggle--improve:hover {
+      background: rgba(0, 210, 130, 0.15);
+      border-color: rgba(0, 210, 130, 0.45);
+    }
+    .q-kpi-remove {
+      background: transparent;
+      color: rgba(255,255,255,0.4);
+      border: 1px solid rgba(255,255,255,0.12);
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+      padding: 0;
+    }
+    .q-kpi-remove:hover {
+      background: rgba(255,80,80,0.15);
+      color: #ff6b6b;
+      border-color: rgba(255,80,80,0.4);
     }
     .q-bh-row {
       display: grid;

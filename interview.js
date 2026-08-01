@@ -100,7 +100,7 @@ export const QUESTIONS = [
   },
   {
     id: 'hero-kpis',
-    prompt: 'Give me 4 hero KPIs — the numbers that carry the narrative. Frame with at least one Reduce (cost/time saved) and one Improve (outcome gained).',
+    prompt: 'Give me the hero KPIs — the numbers that carry the narrative. Start with at least one Reduce (cost/time saved) and one Improve (outcome gained). You can add up to 5.',
     fields: [{ key: 'hero_kpis', type: 'kpi-grid', required: true }],
   },
   {
@@ -270,13 +270,16 @@ export class InterviewController {
     // Compound widgets seed state so their key exists in `state`
     const compound = q.fields.find((f) => f.type === 'kpi-grid' || f.type === 'beachheads');
     if (compound) {
-      state[compound.key] = compound.type === 'kpi-grid' ? [{}, {}, {}, {}] : [{}, {}];
+      state[compound.key] = compound.type === 'kpi-grid' ? [{}, {}] : [{}, {}];
     }
 
     // Actions row: Suggest (left) + Submit (right)
+    // Hide suggest button on Q1 (customer-name) and Q11 (beachheads — has per-use-case suggest)
+    const hideSuggest = q.id === 'customer-name' || q.id === 'beachheads';
+
     const actions = document.createElement('div');
     actions.className = 'q-actions';
-    actions.appendChild(suggestBtn);
+    if (!hideSuggest) actions.appendChild(suggestBtn);
     actions.appendChild(submitBtn);
     wrap.appendChild(actions);
 
@@ -364,42 +367,118 @@ export class InterviewController {
       return renderChoiceControl(field, 'multi', onChange);
     }
     if (field.type === 'kpi-grid') {
+      const MAX_KPI = 5;
+      const MIN_KPI = 1;
       const g = document.createElement('div');
       g.className = 'q-kpi-grid';
-      const rows = [{}, {}, {}, {}];
-      const framings = ['Reduce', 'Reduce', 'Improve', 'Improve'];
-      const inputRefs = [];
-      rows.forEach((_, i) => {
+      const rows = [];         // data: [{value, unit, label, framing}, ...]
+      const rowEls = [];       // DOM row elements
+      const inputRefs = [];    // DOM refs per row
+
+      const rowContainer = document.createElement('div');
+      rowContainer.className = 'q-kpi-rows';
+      g.appendChild(rowContainer);
+
+      // "Add KPI" button
+      const addBtn = document.createElement('button');
+      addBtn.type = 'button';
+      addBtn.className = 'q-add-uc';
+      addBtn.textContent = '+ Add KPI';
+      g.appendChild(addBtn);
+
+      function buildKpiRow(framing) {
         const row = document.createElement('div');
         row.className = 'q-kpi-row';
         row.innerHTML = `
-          <div class="q-kpi-tag">${framings[i]}</div>
+          <button type="button" class="q-kpi-toggle q-kpi-toggle--${framing.toLowerCase()}">${framing}</button>
           <input type="text" class="q-input q-kpi-value" placeholder="30" />
           <input type="text" class="q-input q-kpi-unit" placeholder="%" />
-          <input type="text" class="q-input q-kpi-label" placeholder="reduction in onboarding time" />
+          <input type="text" class="q-input q-kpi-label" placeholder="${framing === 'Reduce' ? 'reduction in onboarding time' : 'increase in cross-sell revenue'}" />
+          <button type="button" class="q-kpi-remove" title="Remove this KPI">✕</button>
         `;
+        const toggleBtn = row.querySelector('.q-kpi-toggle');
         const [valEl, unitEl, labelEl] = row.querySelectorAll('input');
-        inputRefs.push({ valEl, unitEl, labelEl });
+        const removeBtn = row.querySelector('.q-kpi-remove');
+        let currentFraming = framing;
+
         const emit = () => {
-          rows[i] = { value: valEl.value, unit: unitEl.value, label: labelEl.value, framing: framings[i] };
+          const idx = rowEls.indexOf(row);
+          if (idx >= 0) rows[idx] = { value: valEl.value, unit: unitEl.value, label: labelEl.value, framing: currentFraming };
           onChange([...rows]);
         };
+
+        // Toggle Reduce ↔ Improve
+        toggleBtn.addEventListener('click', () => {
+          currentFraming = currentFraming === 'Reduce' ? 'Improve' : 'Reduce';
+          toggleBtn.textContent = currentFraming;
+          toggleBtn.className = `q-kpi-toggle q-kpi-toggle--${currentFraming.toLowerCase()}`;
+          labelEl.placeholder = currentFraming === 'Reduce' ? 'reduction in onboarding time' : 'increase in cross-sell revenue';
+          emit();
+        });
+
         valEl.addEventListener('input', emit);
         unitEl.addEventListener('input', emit);
         labelEl.addEventListener('input', emit);
-        g.appendChild(row);
-      });
+
+        // Remove button
+        removeBtn.addEventListener('click', () => {
+          const idx = rowEls.indexOf(row);
+          if (idx < 0 || rows.length <= MIN_KPI) return;
+          rows.splice(idx, 1);
+          inputRefs.splice(idx, 1);
+          rowEls.splice(idx, 1);
+          row.remove();
+          updateRemoveBtns();
+          updateAddBtn();
+          onChange([...rows]);
+        });
+
+        return { row, valEl, unitEl, labelEl, toggleBtn, setFraming: (f) => { currentFraming = f; toggleBtn.textContent = f; toggleBtn.className = `q-kpi-toggle q-kpi-toggle--${f.toLowerCase()}`; } };
+      }
+
+      function updateRemoveBtns() {
+        rowEls.forEach(el => {
+          const rm = el.querySelector('.q-kpi-remove');
+          if (rm) rm.style.display = rows.length <= MIN_KPI ? 'none' : '';
+        });
+      }
+
+      function updateAddBtn() {
+        addBtn.style.display = rows.length >= MAX_KPI ? 'none' : '';
+      }
+
+      function addKpi(framing = 'Reduce') {
+        if (rows.length >= MAX_KPI) return;
+        rows.push({});
+        const { row, valEl, unitEl, labelEl, toggleBtn, setFraming } = buildKpiRow(framing);
+        inputRefs.push({ valEl, unitEl, labelEl, toggleBtn, setFraming });
+        rowEls.push(row);
+        rowContainer.appendChild(row);
+        updateRemoveBtns();
+        updateAddBtn();
+        onChange([...rows]);
+      }
+
+      addBtn.addEventListener('click', () => addKpi('Reduce'));
+
+      // Start with 1 Reduce + 1 Improve
+      addKpi('Reduce');
+      addKpi('Improve');
+
       return {
         el: g,
         setValue: (arr) => {
           if (!Array.isArray(arr)) return;
-          arr.slice(0, 4).forEach((row, i) => {
-            if (!row) return;
-            const { valEl, unitEl, labelEl } = inputRefs[i];
-            valEl.value = String(row.value ?? '');
-            unitEl.value = String(row.unit ?? '');
-            labelEl.value = String(row.label ?? '');
-            rows[i] = { value: valEl.value, unit: unitEl.value, label: labelEl.value, framing: framings[i] };
+          // Adjust row count
+          while (rows.length < arr.length && rows.length < MAX_KPI) addKpi('Reduce');
+          arr.slice(0, rows.length).forEach((item, i) => {
+            if (!item) return;
+            const refs = inputRefs[i];
+            refs.valEl.value = String(item.value ?? '');
+            refs.unitEl.value = String(item.unit ?? '');
+            refs.labelEl.value = String(item.label ?? '');
+            if (item.framing) refs.setFraming(item.framing);
+            rows[i] = { value: refs.valEl.value, unit: refs.unitEl.value, label: refs.labelEl.value, framing: item.framing || 'Reduce' };
           });
           onChange([...rows]);
         },
