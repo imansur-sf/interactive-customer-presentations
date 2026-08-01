@@ -31,6 +31,7 @@ const state = {
   activeSlideIdx: null,
   scope: null,
   interview: null,
+  interviewActive: false,
   answers: null,   // populated after interview completes
   busy: false,
 };
@@ -172,10 +173,16 @@ function clearScope() {
 // ------------------------------------------------------------------ Interview
 function startInterview() {
   clearScope();
+  state.interviewActive = true;
   const log = document.getElementById('chat-log');
   // Reset log to a fresh start message
   log.innerHTML = '';
-  appendMessage('assistant', "Great — let's build your deck. I'll ask 16 questions covering customer, deck type, Bowden goal, the Gap, hero KPIs, stack, beachheads, proof, roadmap, closing, accent color, and animations. Answer each one below.");
+  appendMessage('assistant', "Great — let's build your deck. I'll ask 16 questions covering customer, deck type, Bowden goal, the Gap, hero KPIs, stack, beachheads, proof, roadmap, closing, accent color, and animations. Answer each one below.\n\nYou can also type free-form requests in the input bar at any time — for example, ask me to create an architecture diagram or rewrite specific content.");
+
+  // Enable the input bar during interview for free-form requests
+  document.getElementById('chat-textarea').disabled = false;
+  document.getElementById('btn-send').disabled = false;
+  document.getElementById('chat-textarea').placeholder = 'Type a free-form request… (⏎ to send)';
 
   state.interview = new InterviewController({
     container: log,
@@ -275,6 +282,33 @@ async function sendScopedEdit(text) {
   }
 }
 
+// ------------------------------------------------------------------ Free-form message (during interview)
+async function sendFreeformMessage(text) {
+  appendMessage('user', text);
+  setBusy(true, 'Working on your request…');
+  try {
+    const resp = await callLLM({
+      turn: 'freeform',
+      userMessage: text,
+      deckContext: {
+        answers: state.answers || {},
+        slides: state.slides.map((s) => ({ idx: s.idx, label: s.label, section: s.dataSection })),
+      },
+      model: 'sonnet',
+    });
+
+    const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
+    rerenderPreview();
+    appendMessage('assistant', resp.message || `Applied ${applied.length} change${applied.length === 1 ? '' : 's'}.`);
+    if (skipped.length) console.warn('skipped patches', skipped);
+  } catch (err) {
+    console.error(err);
+    appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
+  } finally {
+    setBusy(false);
+  }
+}
+
 // Map slide label → the kebab-case id the LLM/prompts use.
 function kebabForSlide(slide) {
   const map = {
@@ -323,6 +357,8 @@ function sendMessage() {
 
   if (state.scope != null) {
     sendScopedEdit(text);
+  } else if (state.interviewActive) {
+    sendFreeformMessage(text);
   } else {
     appendMessage('user', text);
     appendMessage('assistant', 'Click a slide on the right first, then I can apply the edit there. Or click Start interview to build a deck from scratch.');
@@ -356,8 +392,8 @@ function setBusy(busy, label) {
     log.scrollTop = log.scrollHeight;
   } else {
     document.getElementById('busy-msg')?.remove();
-    // Re-enable input state (respect scope)
-    if (state.scope != null) {
+    // Re-enable input state (respect scope or active interview)
+    if (state.scope != null || state.interviewActive) {
       ta.disabled = false; btn.disabled = false;
     }
   }
