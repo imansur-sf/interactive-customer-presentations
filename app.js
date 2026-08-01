@@ -35,6 +35,8 @@ const state = {
   answers: null,   // populated after interview completes
   busy: false,
   scrapedLogo: null, // logo URL scraped from customer website
+  meetingNotes: '',   // optional meeting notes / context from user
+  googleConfig: null, // { clientId, apiKey, appId, configured }
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -172,24 +174,34 @@ function clearScope() {
 }
 
 // ------------------------------------------------------------------ Interview
-function startInterview() {
+async function startInterview() {
   clearScope();
   state.interviewActive = true;
   const log = document.getElementById('chat-log');
   // Reset log to a fresh start message
   log.innerHTML = '';
-  appendMessage('assistant', "Great — let's build your deck. I'll ask 16 questions covering customer, deck type, Bowden goal, the Gap, hero KPIs, stack, beachheads, proof, roadmap, closing, accent color, and animations. Answer each one below.\n\nYou can also type free-form requests in the input bar at any time — for example, ask me to create an architecture diagram or rewrite specific content.");
+  appendMessage('assistant', "Great — let's build your deck. I'll walk you through a series of questions covering customer, deck type, Bowden goal, the Gap, hero KPIs, stack, beachheads, proof, roadmap, closing, accent color, and animations.\n\nYou can also type free-form requests in the input bar at any time — for example, ask me to create an architecture diagram or rewrite specific content.");
 
   // Enable the input bar during interview for free-form requests
   document.getElementById('chat-textarea').disabled = false;
   document.getElementById('btn-send').disabled = false;
   document.getElementById('chat-textarea').placeholder = 'Type a free-form request… (⏎ to send)';
 
+  // Fetch Google config (non-blocking — if it fails, picker just won't show)
+  if (!state.googleConfig) {
+    try {
+      const res = await fetch('/api/google-config');
+      if (res.ok) state.googleConfig = await res.json();
+    } catch (_) { /* Google Drive picker will just be hidden */ }
+  }
+
   state.interview = new InterviewController({
     container: log,
     appendMessage,
-    onComplete: async (answers) => {
+    googleConfig: state.googleConfig,
+    onComplete: async (answers, meetingNotes) => {
       state.answers = answers;
+      state.meetingNotes = meetingNotes || '';
       await generateDeck(answers);
     },
     onAnswer: async (questionId, answersSoFar) => {
@@ -198,7 +210,7 @@ function startInterview() {
     onSuggest: async (questionId, questionSchema, answersSoFar) => {
       return await suggestAnswer({
         questionId,
-        deckContext: { answers: answersSoFar },
+        deckContext: { answers: answersSoFar, meetingNotes: state.meetingNotes || '' },
         questionSchema,
       });
     },
@@ -222,6 +234,7 @@ async function generateDeck(answers) {
       deckContext: {
         answers,
         logoUrl: state.scrapedLogo || '',
+        meetingNotes: state.meetingNotes || '',
         slides: state.slides.map((s) => ({ idx: s.idx, label: s.label, section: s.dataSection })),
       },
       model: 'sonnet',
@@ -340,6 +353,7 @@ async function handleProgressiveUpdate(questionId, answers) {
       deckContext: {
         answers,
         targetSlides: mapping.slides,
+        meetingNotes: state.meetingNotes || '',
         slides: state.slides.map(s => ({ idx: s.idx, label: s.label, section: s.dataSection })),
       },
       model: 'haiku', // fast tier for quick incremental updates
@@ -430,6 +444,7 @@ async function sendFreeformMessage(text) {
       userMessage: text,
       deckContext: {
         answers: state.answers || {},
+        meetingNotes: state.meetingNotes || '',
         slides: state.slides.map((s) => ({ idx: s.idx, label: s.label, section: s.dataSection })),
       },
       model: 'sonnet',

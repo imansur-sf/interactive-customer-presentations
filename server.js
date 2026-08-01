@@ -93,6 +93,21 @@ app.post('/api/track', async (req, res) => {
   res.json({ ok: true });
 });
 
+// --- Google Drive Picker Config ---
+// Returns client-side credentials for Google Drive Picker (if configured).
+// API key is safe to expose — it's a browser-restricted key, not a secret.
+app.get('/api/google-config', (req, res) => {
+  const clientId = process.env.GOOGLE_CLIENT_ID || '';
+  const apiKey = process.env.GOOGLE_API_KEY || '';
+  const appId = process.env.GOOGLE_APP_ID || '';
+  res.json({
+    clientId,
+    apiKey,
+    appId,
+    configured: Boolean(clientId && apiKey && appId),
+  });
+});
+
 // --- Logo Scrape Endpoint ---
 // Attempts to find a company logo from their domain using Clearbit → Google Favicon fallback.
 app.get('/api/scrape-logo', async (req, res) => {

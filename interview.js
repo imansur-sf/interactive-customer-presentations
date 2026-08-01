@@ -165,20 +165,179 @@ export const QUESTIONS = [
 ];
 
 export class InterviewController {
-  constructor({ container, onComplete, appendMessage, onSuggest, onAnswer }) {
+  constructor({ container, onComplete, appendMessage, onSuggest, onAnswer, googleConfig }) {
     this.container = container;   // the chat log element
     this.onComplete = onComplete; // called with the collected deckContext
     this.appendMessage = appendMessage;
     this.onSuggest = onSuggest;   // (questionId, questionSchema, answersSoFar) → Promise<{values, rationale}>
     this.onAnswer = onAnswer;     // (questionId, answersSoFar) → void — progressive updates
+    this.googleConfig = googleConfig || null; // { clientId, apiKey, appId, configured }
     this.index = 0;
     this.answers = {};
+    this.meetingNotes = '';
   }
 
   start() {
     this.index = 0;
     this.answers = {};
-    this.renderQuestion();
+    this.meetingNotes = '';
+    this.renderMeetingNotesStep();
+  }
+
+  /** Optional pre-Q1 step: paste meeting notes or import from Google Docs */
+  renderMeetingNotesStep() {
+    const msg = document.createElement('div');
+    msg.className = 'msg assistant';
+    msg.innerHTML = `
+      <div class="msg-label">Imran AI · Pre-step</div>
+      <div class="q-prompt">Got meeting notes or context? (Optional)</div>
+      <div class="q-help">Paste call transcripts, meeting notes, or any customer context below. This helps me give better suggestions throughout the interview. You can skip this if you prefer.</div>
+    `;
+    this.container.appendChild(msg);
+
+    const wrap = document.createElement('div');
+    wrap.className = 'q-widget q-notes-step';
+
+    // Textarea for paste
+    const ta = document.createElement('textarea');
+    ta.className = 'q-textarea q-notes-textarea';
+    ta.rows = 6;
+    ta.placeholder = 'Paste meeting notes, call transcripts, customer research, or any context about this customer…';
+    wrap.appendChild(ta);
+
+    // Google Drive import button (only if configured)
+    const driveRow = document.createElement('div');
+    driveRow.className = 'q-notes-drive-row';
+
+    if (this.googleConfig?.configured) {
+      const driveBtn = document.createElement('button');
+      driveBtn.type = 'button';
+      driveBtn.className = 'q-notes-drive-btn';
+      driveBtn.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>
+        Import from Google Docs
+      `;
+      driveBtn.addEventListener('click', () => this.openGooglePicker(ta));
+      driveRow.appendChild(driveBtn);
+    }
+    wrap.appendChild(driveRow);
+
+    // Actions: Skip + Continue
+    const actions = document.createElement('div');
+    actions.className = 'q-actions';
+
+    const skipBtn = document.createElement('button');
+    skipBtn.type = 'button';
+    skipBtn.className = 'q-notes-skip';
+    skipBtn.textContent = 'Skip →';
+    skipBtn.addEventListener('click', () => {
+      this.meetingNotes = '';
+      wrap.querySelectorAll('textarea, button').forEach(el => el.disabled = true);
+      wrap.style.opacity = '0.6';
+      this.appendMessage('user', '(Skipped meeting notes)');
+      this.renderQuestion();
+    });
+
+    const continueBtn = document.createElement('button');
+    continueBtn.type = 'button';
+    continueBtn.className = 'q-submit';
+    continueBtn.textContent = 'Use these notes →';
+    continueBtn.addEventListener('click', () => {
+      const text = ta.value.trim();
+      if (!text) {
+        // If empty, treat as skip
+        this.meetingNotes = '';
+        this.appendMessage('user', '(No meeting notes provided)');
+      } else {
+        this.meetingNotes = text;
+        const preview = text.length > 120 ? text.slice(0, 120) + '…' : text;
+        this.appendMessage('user', `📋 Meeting notes added (${text.length} chars): ${preview}`);
+      }
+      wrap.querySelectorAll('textarea, button').forEach(el => el.disabled = true);
+      wrap.style.opacity = '0.6';
+      this.renderQuestion();
+    });
+
+    actions.appendChild(skipBtn);
+    actions.appendChild(continueBtn);
+    wrap.appendChild(actions);
+
+    this.container.appendChild(wrap);
+    this.container.scrollTop = this.container.scrollHeight;
+    requestAnimationFrame(() => { this.container.scrollTop = this.container.scrollHeight; });
+  }
+
+  /** Open Google Drive Picker to select a Google Doc */
+  async openGooglePicker(targetTextarea) {
+    if (!this.googleConfig?.configured) return;
+    const { clientId, apiKey, appId } = this.googleConfig;
+
+    try {
+      // Ensure gapi + picker are loaded
+      await new Promise((resolve, reject) => {
+        if (window.gapi?.client?.drive) { resolve(); return; }
+        if (!window.gapi) { reject(new Error('Google API library not loaded yet. Please wait a moment and try again.')); return; }
+        gapi.load('client:picker', async () => {
+          try {
+            await gapi.client.load('https://www.googleapis.com/discovery/v1/apis/drive/v3/rest');
+            resolve();
+          } catch (e) { reject(e); }
+        });
+      });
+
+      // Get OAuth token
+      const accessToken = await new Promise((resolve, reject) => {
+        const tokenClient = google.accounts.oauth2.initTokenClient({
+          client_id: clientId,
+          scope: 'https://www.googleapis.com/auth/drive.readonly',
+          callback: (response) => {
+            if (response.error) reject(new Error(response.error));
+            else resolve(response.access_token);
+          },
+        });
+        tokenClient.requestAccessToken({ prompt: '' });
+      });
+
+      // Build and show picker (Google Docs only)
+      const docsView = new google.picker.View(google.picker.ViewId.DOCUMENTS);
+
+      const picker = new google.picker.PickerBuilder()
+        .setDeveloperKey(apiKey)
+        .setAppId(appId)
+        .setOAuthToken(accessToken)
+        .addView(docsView)
+        .setTitle('Select a Google Doc')
+        .setCallback(async (data) => {
+          if (data.action === google.picker.Action.PICKED) {
+            const doc = data[google.picker.Response.DOCUMENTS][0];
+            const fileId = doc[google.picker.Document.ID];
+            const fileName = doc[google.picker.Document.NAME];
+
+            try {
+              this.appendMessage('assistant', `📄 Importing "${fileName}"…`);
+              const response = await gapi.client.drive.files.export({
+                fileId: fileId,
+                mimeType: 'text/plain',
+              });
+              const text = response.body || '';
+              targetTextarea.value = (targetTextarea.value ? targetTextarea.value + '\n\n---\n\n' : '') + text;
+              // Flash feedback
+              targetTextarea.classList.add('flash');
+              setTimeout(() => targetTextarea.classList.remove('flash'), 900);
+              this.appendMessage('assistant', `✅ Imported "${fileName}" (${text.length} chars). Review the text and click "Use these notes" when ready.`);
+            } catch (err) {
+              console.error('Drive export failed', err);
+              this.appendMessage('assistant', `⚠️ Couldn't import the document: ${err.message || 'Unknown error'}`);
+            }
+          }
+        })
+        .build();
+
+      picker.setVisible(true);
+    } catch (err) {
+      console.error('Google Picker failed', err);
+      this.appendMessage('assistant', `⚠️ Google Drive: ${err.message || 'Connection failed. Please try again.'}`);
+    }
   }
 
   renderQuestion() {
@@ -658,7 +817,7 @@ export class InterviewController {
 
   finish() {
     this.appendMessage('assistant', "Perfect — I've got everything I need. Generating the deck now…");
-    this.onComplete(this.answers);
+    this.onComplete(this.answers, this.meetingNotes);
   }
 }
 

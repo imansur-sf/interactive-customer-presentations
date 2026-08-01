@@ -343,7 +343,7 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
       description: 'Propose a filled-in answer for the current interview question, based on the answers collected so far.',
       input_schema: suggestSchema,
     };
-    const userPrompt = [
+    const suggestLines = [
       `The user wants an AI-generated suggestion for interview question "${questionId}". Fill the fields below based on the answers collected so far and the deck rules in SKILL.md / STYLE-GUIDE.md.`,
       '',
       'Question schema (what fields to fill and their constraints):',
@@ -361,15 +361,30 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
       '- For text/textarea fields: return the full suggested text as a string. NEVER return an empty string.',
       '- For radio fields: return one of the exact option strings from the schema.',
       '- For multiselect fields: return an array of selected option strings.',
-      '- For kpi-grid fields: return an array of 4 objects, each with {value, unit, label, framing}. Use whole integers, respect Reduce/Improve framing, keep labels ≤10 words.',
+      '- For kpi-grid fields: return an array of KPI objects, each with {value, unit, label, framing}. Use whole integers, respect Reduce/Improve framing, keep labels ≤10 words.',
       '- For beachheads fields: return an array of 2 objects, each with {title, before, after, ttv}. bc-title ≤6 words, before/after ≤15 words.',
       '- If a field has fixed options, prefer one of those unless none fit — in which case return a concise free-form value.',
       '- Enforce every copy-length cap and voice rule from STYLE-GUIDE.md (no "but"/"however", parallel structure, ≤6-word titles, etc.).',
       '- If a customer website URL is provided in the answers (customer_url), use your knowledge of that company — their products, market position, challenges, and competitive landscape — to make suggestions specific and relevant to their business.',
       '- If prior answers are sparse, make reasonable industry-appropriate assumptions. Research the customer name if you know them. NEVER return empty values — always provide a thoughtful, specific suggestion.',
       '- The rationale should be ONE concise sentence explaining your suggestion. Keep it brief — the field values are what matter most.',
-      'Return the suggestion via the `suggest_answer` tool.',
-    ].join('\n');
+      '',
+    ];
+
+    // Inject meeting notes if available
+    const meetingNotes = deckContext?.meetingNotes;
+    if (meetingNotes && typeof meetingNotes === 'string' && meetingNotes.trim()) {
+      suggestLines.push(
+        'MEETING NOTES / CONTEXT (the user provided these — use them to inform your suggestions with real customer-specific details):',
+        '```',
+        meetingNotes.slice(0, 8000), // Cap to avoid overwhelming the context window
+        '```',
+        '',
+      );
+    }
+
+    suggestLines.push('Return the suggestion via the `suggest_answer` tool.');
+    const userPrompt = suggestLines.join('\n');
     return { userPrompt, tool };
   }
 
@@ -436,7 +451,7 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
     const customerName = deckContext?.answers?.customer || 'Customer';
     const customerUrl = deckContext?.answers?.customer_url || '';
     const logoUrl = deckContext?.logoUrl || '';
-    userPrompt = [
+    const generateLines = [
       'Generate the COMPLETE personalized deck from ALL interview answers.',
       '',
       contextBlock,
@@ -448,7 +463,7 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
          customerUrl ? ` Also try to replace the cobrand pill <img> src — construct a likely logo URL from the customer domain (e.g. https://logo.clearbit.com/${new URL(customerUrl).hostname}).` : ''),
       '',
       'THEN generate patches for ALL slides with fully personalized content:',
-      '- Hero: leading_statement as the big H1. Accent-colored eyebrow with industry tags. 4 KPI stat-cards from hero_kpis (value + unit + label + framing).',
+      '- Hero: leading_statement as the big H1. Accent-colored eyebrow with industry tags. KPI stat-cards from hero_kpis (value + unit + label + framing).',
       '- Why Now: why_now_pressure (external force) + why_now_cost (cost of delay).',
       '- The Gap: gap_today (left column, pain points) vs gap_tomorrow (right column, outcomes).',
       '- How It Works: stack layers from stack_sf products + stack_customer systems. Customer systems at foundation layers.',
@@ -469,7 +484,21 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
       'COPY RULES:',
       '- ALL copy must be specific to the customer name, industry, and use cases. No generic placeholders.',
       '- Enforce every copy-length cap from STYLE-GUIDE.md (≤6-word bc-titles, ≤15-word before/after, etc.).',
-    ].join('\n');
+    ];
+
+    // Inject meeting notes into generate prompt if available
+    const genNotes = deckContext?.meetingNotes;
+    if (genNotes && typeof genNotes === 'string' && genNotes.trim()) {
+      generateLines.push(
+        '',
+        'MEETING NOTES / ADDITIONAL CONTEXT (use this to make the deck even more specific and relevant):',
+        '```',
+        genNotes.slice(0, 8000),
+        '```',
+      );
+    }
+
+    userPrompt = generateLines.join('\n');
   } else if (turn === 'progressive') {
     const targetSlides = deckContext?.targetSlides?.join(', ') || 'relevant';
     userPrompt = [
