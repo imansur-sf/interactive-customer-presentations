@@ -210,7 +210,7 @@ app.post('/api/llm', async (req, res) => {
       functionDeclarations: tools.map(t => ({
         name: t.name,
         description: t.description || '',
-        parameters: t.parameters || {}
+        parameters: sanitizeSchemaForGemini(t.parameters || {})
       }))
     }];
 
@@ -428,6 +428,50 @@ app.listen(PORT, '::', () => {
 // ============================================================
 // Utilities
 // ============================================================
+
+// Gemini's function calling API uses a subset of JSON Schema.
+// It does NOT support: additionalProperties, $schema, default, examples,
+// oneOf, anyOf, allOf, not, if/then/else, patternProperties, etc.
+// This function recursively strips unsupported fields.
+const UNSUPPORTED_SCHEMA_KEYS = new Set([
+  'additionalProperties', '$schema', 'default', 'examples', 'example',
+  'oneOf', 'anyOf', 'allOf', 'not', 'if', 'then', 'else',
+  'patternProperties', 'unevaluatedProperties', 'unevaluatedItems',
+  'contentMediaType', 'contentEncoding', 'definitions', '$defs',
+  '$ref', '$id', '$comment', 'title', 'readOnly', 'writeOnly',
+  'deprecated', 'externalDocs', 'xml', 'discriminator',
+  'minProperties', 'maxProperties', 'minItems', 'maxItems',
+  'uniqueItems', 'minLength', 'maxLength', 'pattern',
+  'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum',
+  'multipleOf', 'const', 'prefixItems',
+]);
+
+function sanitizeSchemaForGemini(schema) {
+  if (!schema || typeof schema !== 'object') return schema;
+  if (Array.isArray(schema)) return schema.map(sanitizeSchemaForGemini);
+
+  const clean = {};
+  for (const [key, value] of Object.entries(schema)) {
+    if (UNSUPPORTED_SCHEMA_KEYS.has(key)) continue;
+
+    // Handle type arrays like ["string", "null"] → "string" (Gemini wants a single type string)
+    if (key === 'type' && Array.isArray(value)) {
+      const nonNull = value.filter(t => t !== 'null');
+      clean.type = nonNull.length === 1 ? nonNull[0] : nonNull[0] || 'string';
+      // Mark as nullable if null was in the array
+      if (value.includes('null')) clean.nullable = true;
+      continue;
+    }
+
+    if (typeof value === 'object' && value !== null) {
+      clean[key] = sanitizeSchemaForGemini(value);
+    } else {
+      clean[key] = value;
+    }
+  }
+  return clean;
+}
+
 function isDangerousHost(host) {
   if (!host) return true;
   const h = host.toLowerCase();
