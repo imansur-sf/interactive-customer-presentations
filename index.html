@@ -197,6 +197,20 @@
       opacity: 0.4;
       cursor: not-allowed;
     }
+    .btn-upload {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px;
+      border-radius: 8px;
+      cursor: pointer;
+      color: rgba(255,255,255,0.5);
+      transition: color 0.15s, background 0.15s;
+    }
+    .btn-upload:hover {
+      color: #fff;
+      background: rgba(255,255,255,0.08);
+    }
 
     /* Scoped-edit chip — appears above input when a slide is selected */
     .scope-chip {
@@ -719,6 +733,10 @@
       </div>
       <div class="chat-input">
         <textarea id="chat-textarea" placeholder="Type a message… (⏎ to send)" rows="1" disabled></textarea>
+        <label class="btn-upload" title="Upload logo image">
+          <input type="file" id="file-upload" accept="image/*" style="display:none" />
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </label>
         <button id="btn-send" disabled>Send</button>
       </div>
     </aside>

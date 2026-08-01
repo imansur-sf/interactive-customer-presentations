@@ -165,11 +165,12 @@ export const QUESTIONS = [
 ];
 
 export class InterviewController {
-  constructor({ container, onComplete, appendMessage, onSuggest }) {
+  constructor({ container, onComplete, appendMessage, onSuggest, onAnswer }) {
     this.container = container;   // the chat log element
     this.onComplete = onComplete; // called with the collected deckContext
     this.appendMessage = appendMessage;
     this.onSuggest = onSuggest;   // (questionId, questionSchema, answersSoFar) → Promise<{values, rationale}>
+    this.onAnswer = onAnswer;     // (questionId, answersSoFar) → void — progressive updates
     this.index = 0;
     this.answers = {};
   }
@@ -315,6 +316,12 @@ export class InterviewController {
     submitBtn.addEventListener('click', () => {
       this.appendMessage('user', summariseAnswer(q, state));
       Object.assign(this.answers, state);
+      // Fire progressive update (non-blocking)
+      if (this.onAnswer) {
+        this.onAnswer(q.id, { ...this.answers }).catch(err =>
+          console.warn('onAnswer failed for', q.id, err)
+        );
+      }
       wrap.querySelectorAll('input, textarea, button').forEach((el) => el.disabled = true);
       wrap.style.opacity = '0.6';
       this.index++;

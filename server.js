@@ -93,6 +93,34 @@ app.post('/api/track', async (req, res) => {
   res.json({ ok: true });
 });
 
+// --- Logo Scrape Endpoint ---
+// Attempts to find a company logo from their domain using Clearbit → Google Favicon fallback.
+app.get('/api/scrape-logo', async (req, res) => {
+  const url = req.query.url;
+  if (!url) return res.status(400).json({ error: 'missing_url' });
+
+  let domain;
+  try { domain = new URL(url).hostname.replace(/^www\./, ''); }
+  catch { return res.status(400).json({ error: 'invalid_url' }); }
+
+  try {
+    // Try Clearbit Logo API first (high-quality, 128px)
+    const clearbit = `https://logo.clearbit.com/${domain}`;
+    const check = await fetch(clearbit, { method: 'HEAD', redirect: 'follow' });
+    if (check.ok) {
+      return res.json({ logoUrl: clearbit, source: 'clearbit' });
+    }
+  } catch (_) {}
+
+  try {
+    // Fallback: Google's favicon service (always works, lower quality)
+    const google = `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
+    return res.json({ logoUrl: google, source: 'google-favicon' });
+  } catch (_) {
+    return res.status(502).json({ error: 'scrape_failed' });
+  }
+});
+
 // --- Scrape Endpoint ---
 app.get('/api/scrape', async (req, res) => {
   const target = req.query.url;

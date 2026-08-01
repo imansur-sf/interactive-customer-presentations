@@ -34,6 +34,7 @@ const state = {
   interviewActive: false,
   answers: null,   // populated after interview completes
   busy: false,
+  scrapedLogo: null, // logo URL scraped from customer website
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -191,6 +192,9 @@ function startInterview() {
       state.answers = answers;
       await generateDeck(answers);
     },
+    onAnswer: async (questionId, answersSoFar) => {
+      await handleProgressiveUpdate(questionId, answersSoFar);
+    },
     onSuggest: async (questionId, questionSchema, answersSoFar) => {
       return await suggestAnswer({
         questionId,
@@ -208,19 +212,25 @@ function startInterview() {
 async function generateDeck(answers) {
   setBusy(true, 'Generating deck…');
   try {
+    // Force-apply accent color + cobrand BEFORE AI call (instant visual feedback)
+    applyAccentAndCobrand(answers);
+    rerenderPreview();
+
     const resp = await callLLM({
       turn: 'generate',
       userMessage: 'Generate the complete deck from the interview answers below.',
       deckContext: {
         answers,
-        // Send the current (blank/reference) deck slide ids so the model knows
-        // the target slot structure it's patching against.
+        logoUrl: state.scrapedLogo || '',
         slides: state.slides.map((s) => ({ idx: s.idx, label: s.label, section: s.dataSection })),
       },
-      model: 'sonnet', // balanced tier (gemini-3.5-flash) — via SSE streaming
+      model: 'sonnet',
     });
 
     const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
+
+    // Force-apply accent + cobrand again AFTER patches (safety net)
+    applyAccentAndCobrand(answers);
     rerenderPreview();
 
     let note = resp.message || `Deck generated. ${applied.length} patches applied.`;
@@ -244,6 +254,134 @@ async function generateDeck(answers) {
     appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
   } finally {
     setBusy(false);
+  }
+}
+
+// Apply accent color + customer name to cobrand pill programmatically.
+function applyAccentAndCobrand(answers) {
+  if (!state.deckDoc) return;
+  if (answers.accent_hex) {
+    const root = state.deckDoc.documentElement;
+    root.style.setProperty('--accent', answers.accent_hex);
+    root.style.setProperty('--accent-l', lightenHex(answers.accent_hex, 0.25));
+  }
+  if (answers.customer) {
+    const pillSpan = state.deckDoc.querySelector('.cobrand-pill span');
+    if (pillSpan) pillSpan.textContent = answers.customer;
+  }
+  if (state.scrapedLogo) {
+    const pillImg = state.deckDoc.querySelector('.cobrand-pill img');
+    if (pillImg) {
+      // Add customer logo AFTER the Salesforce logo (or replace if it's the only one)
+      const existingCustomerLogo = state.deckDoc.querySelector('.cobrand-pill .customer-logo');
+      if (!existingCustomerLogo) {
+        const divider = state.deckDoc.querySelector('.cobrand-pill .cobrand-divider');
+        if (divider) {
+          const img = state.deckDoc.createElement('img');
+          img.className = 'customer-logo';
+          img.src = state.scrapedLogo;
+          img.width = 28;
+          img.height = 28;
+          img.alt = answers.customer || 'Customer';
+          img.style.cssText = 'border-radius:4px;object-fit:contain;';
+          divider.insertAdjacentElement('afterend', img);
+        }
+      } else {
+        existingCustomerLogo.src = state.scrapedLogo;
+      }
+    }
+  }
+}
+
+// ------------------------------------------------------------------ Progressive updates
+const PROGRESSIVE_MAP = {
+  'customer-name': { immediate: true, action: 'cobrand' },
+  'leading-statement': { slides: ['hero'] },
+  'gap': { slides: ['gap'] },
+  'why-now': { slides: ['why-now'] },
+  'hero-kpis': { slides: ['hero'] },
+  'stack': { slides: ['stack'] },
+  'beachheads': { slides: ['beachheads', 'scale'] },
+  'proof': { slides: ['proof'] },
+  'roadmap': { slides: ['roadmap'] },
+  'closing': { slides: ['closing'] },
+  'accent': { immediate: true, action: 'accent' },
+};
+
+async function handleProgressiveUpdate(questionId, answers) {
+  const mapping = PROGRESSIVE_MAP[questionId];
+  if (!mapping) return;
+
+  // Immediate updates (no AI call)
+  if (mapping.immediate) {
+    if (mapping.action === 'accent' && answers.accent_hex) {
+      state.deckDoc.documentElement.style.setProperty('--accent', answers.accent_hex);
+      state.deckDoc.documentElement.style.setProperty('--accent-l', lightenHex(answers.accent_hex, 0.25));
+      rerenderPreview();
+    }
+    if (mapping.action === 'cobrand') {
+      if (answers.customer) {
+        const pill = state.deckDoc.querySelector('.cobrand-pill span');
+        if (pill) pill.textContent = answers.customer;
+        rerenderPreview();
+      }
+      // Kick off background logo scrape
+      if (answers.customer_url) scrapeLogoBackground(answers.customer_url);
+    }
+    return;
+  }
+
+  // AI-powered progressive update (fire-and-forget, no busy spinner)
+  try {
+    const resp = await callLLM({
+      turn: 'progressive',
+      questionId,
+      userMessage: `Update the ${mapping.slides.join(', ')} slide(s) based on the answer to "${questionId}".`,
+      deckContext: {
+        answers,
+        targetSlides: mapping.slides,
+        slides: state.slides.map(s => ({ idx: s.idx, label: s.label, section: s.dataSection })),
+      },
+      model: 'haiku', // fast tier for quick incremental updates
+    });
+    const { applied } = applyPatches(state.deckDoc, resp.patches || []);
+    if (applied.length) rerenderPreview();
+  } catch (err) {
+    console.warn('progressive update skipped for', questionId, err.message);
+    // Non-fatal — final generate pass will catch it
+  }
+}
+
+async function scrapeLogoBackground(url) {
+  try {
+    const res = await fetch(`/api/scrape-logo?url=${encodeURIComponent(url)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.logoUrl) {
+      state.scrapedLogo = data.logoUrl;
+      // If deck is loaded, apply immediately
+      if (state.deckDoc) {
+        const existingCustomerLogo = state.deckDoc.querySelector('.cobrand-pill .customer-logo');
+        if (existingCustomerLogo) {
+          existingCustomerLogo.src = data.logoUrl;
+        } else {
+          const divider = state.deckDoc.querySelector('.cobrand-pill .cobrand-divider');
+          if (divider) {
+            const img = state.deckDoc.createElement('img');
+            img.className = 'customer-logo';
+            img.src = data.logoUrl;
+            img.width = 28;
+            img.height = 28;
+            img.alt = 'Customer';
+            img.style.cssText = 'border-radius:4px;object-fit:contain;';
+            divider.insertAdjacentElement('afterend', img);
+            rerenderPreview();
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('logo scrape failed', err.message);
   }
 }
 
@@ -346,6 +484,44 @@ function wireChat() {
   btn.addEventListener('click', sendMessage);
 
   document.getElementById('scope-chip-clear').addEventListener('click', clearScope);
+
+  // File upload for logo customization
+  document.getElementById('file-upload').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      appendMessage('assistant', '⚠️ Please upload an image file (PNG, JPG, SVG, etc.).');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUri = reader.result;
+      state.scrapedLogo = dataUri;
+      // Update cobrand pill with uploaded logo
+      if (state.deckDoc) {
+        const existingCustomerLogo = state.deckDoc.querySelector('.cobrand-pill .customer-logo');
+        if (existingCustomerLogo) {
+          existingCustomerLogo.src = dataUri;
+        } else {
+          const divider = state.deckDoc.querySelector('.cobrand-pill .cobrand-divider');
+          if (divider) {
+            const img = state.deckDoc.createElement('img');
+            img.className = 'customer-logo';
+            img.src = dataUri;
+            img.width = 28;
+            img.height = 28;
+            img.alt = 'Customer logo';
+            img.style.cssText = 'border-radius:4px;object-fit:contain;';
+            divider.insertAdjacentElement('afterend', img);
+          }
+        }
+        rerenderPreview();
+      }
+      appendMessage('assistant', '✅ Logo updated! The new logo is now in the deck header.');
+    };
+    reader.readAsDataURL(file);
+    e.target.value = ''; // Reset so same file can be re-uploaded
+  });
 }
 
 function sendMessage() {
@@ -451,4 +627,12 @@ function escapeHtml(s) {
 function escapeAttr(s) { return escapeHtml(s); }
 function slugify(s) {
   return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+}
+function lightenHex(hex, amount) {
+  hex = hex.replace('#', '');
+  if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+  const r = Math.min(255, Math.round(parseInt(hex.slice(0,2), 16) + (255 - parseInt(hex.slice(0,2), 16)) * amount));
+  const g = Math.min(255, Math.round(parseInt(hex.slice(2,4), 16) + (255 - parseInt(hex.slice(2,4), 16)) * amount));
+  const b = Math.min(255, Math.round(parseInt(hex.slice(4,6), 16) + (255 - parseInt(hex.slice(4,6), 16)) * amount));
+  return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
 }

@@ -34,7 +34,7 @@ export async function suggestAnswer({ questionId, deckContext, questionSchema })
  * then posts to the same-origin /api/llm endpoint which proxies to Gemini.
  */
 export async function callLLM(payload) {
-  const heavyTurns = ['generate', 'freeform'];
+  const heavyTurns = ['generate', 'freeform', 'finalize'];
   if (heavyTurns.includes(payload?.turn)) {
     return callServerStream(payload);
   }
@@ -430,6 +430,69 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
       contextBlock,
       '',
       'Apply the edit as one or more patches. Preserve every rule in SLIDE-PRINCIPLES.md for this slide. Do not touch other slides unless the instruction explicitly requires it.',
+    ].join('\n');
+  } else if (turn === 'generate') {
+    const accentHex = deckContext?.answers?.accent_hex || '#DA1710';
+    const customerName = deckContext?.answers?.customer || 'Customer';
+    const customerUrl = deckContext?.answers?.customer_url || '';
+    const logoUrl = deckContext?.logoUrl || '';
+    userPrompt = [
+      'Generate the COMPLETE personalized deck from ALL interview answers.',
+      '',
+      contextBlock,
+      '',
+      'MANDATORY FIRST PATCHES (apply these BEFORE any slide content):',
+      `1. ACCENT COLOR: The customer chose ${accentHex}. You MUST emit a "meta" patch: slide_id:"meta", op:"set-style", selector:":root::style(--accent)", new_html:"${accentHex}". Also emit a second meta patch for --accent-l with a 20% lighter variant of the same hue.`,
+      `2. COBRAND PILL: Replace the text "SF Composer" inside .cobrand-pill <span> with "${customerName}".` +
+        (logoUrl ? ` Also replace the cobrand pill <img> src with "${logoUrl}".` :
+         customerUrl ? ` Also try to replace the cobrand pill <img> src — construct a likely logo URL from the customer domain (e.g. https://logo.clearbit.com/${new URL(customerUrl).hostname}).` : ''),
+      '',
+      'THEN generate patches for ALL slides with fully personalized content:',
+      '- Hero: leading_statement as the big H1. Accent-colored eyebrow with industry tags. 4 KPI stat-cards from hero_kpis (value + unit + label + framing).',
+      '- Why Now: why_now_pressure (external force) + why_now_cost (cost of delay).',
+      '- The Gap: gap_today (left column, pain points) vs gap_tomorrow (right column, outcomes).',
+      '- How It Works: stack layers from stack_sf products + stack_customer systems. Customer systems at foundation layers.',
+      '- AI in Action: personalized to the customer\'s primary use case.',
+      '- Real-Time Data: personalized data-flow narrative for this customer.',
+      '- Start Here: beachhead use cases from the beachheads array (title, before, after, ttv for each).',
+      '- Where This Goes: scale vision tied to the beachheads.',
+      '- What It Does Today: proof quote or stat from the proof field.',
+      '- The Path Forward: phase_1 (0-90 days) + phase_2 (6+ months) roadmap items.',
+      '- Next Steps: 3-step CTA from closing_step_1, closing_step_2, closing_step_3.',
+      '- Attribution: keep Salesforce branding, add customer name.',
+      '',
+      'COLOR RULES:',
+      `- Use var(--accent) for eyebrows, bc-badges, bc-dots, card accent borders, CTA primary buttons, phase-badges.`,
+      '- Follow the 80/20 rule: 80% Salesforce primary blues (#001B41 navy, #032D60 dark, #066AFE electric), 20% accent.',
+      '- NEVER override the primary navy/blue palette with the accent color.',
+      '',
+      'COPY RULES:',
+      '- ALL copy must be specific to the customer name, industry, and use cases. No generic placeholders.',
+      '- Enforce every copy-length cap from STYLE-GUIDE.md (≤6-word bc-titles, ≤15-word before/after, etc.).',
+    ].join('\n');
+  } else if (turn === 'progressive') {
+    const targetSlides = deckContext?.targetSlides?.join(', ') || 'relevant';
+    userPrompt = [
+      `Progressive update: The user just answered interview question "${questionId}". Update ONLY the ${targetSlides} slide(s).`,
+      '',
+      contextBlock,
+      '',
+      'Apply patches ONLY for the specified target slide(s). Use the interview answers collected so far to fill in real, personalized content.',
+      'If accent_hex is set in answers, use var(--accent) for accent elements on these slides.',
+      'Do NOT touch other slides. Keep patches minimal and focused.',
+    ].join('\n');
+  } else if (turn === 'finalize') {
+    userPrompt = [
+      'Final polish pass: Review the ENTIRE deck for completeness and consistency.',
+      '',
+      contextBlock,
+      '',
+      'Check every slide for:',
+      '1. Any remaining placeholder/template content that was not personalized — fill it with real content from the answers.',
+      '2. Accent color consistency — var(--accent) should be used for eyebrows, badges, dots, card accents.',
+      '3. Copy quality — enforce all STYLE-GUIDE.md rules (length caps, voice, no "but"/"however").',
+      '4. Missing content — if any slide is still blank or has generic text, fill it from the answers.',
+      'Only emit patches for things that actually need fixing. If everything looks good, return an empty patches array with a congratulatory message.',
     ].join('\n');
   } else {
     userPrompt = [
