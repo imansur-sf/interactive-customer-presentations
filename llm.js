@@ -188,25 +188,23 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
       } else if (f.type === 'kpi-grid') {
         valueProps[k] = {
           type: 'array',
-          description: 'Array of 4 KPI objects',
+          description: 'Array of exactly 4 KPI objects. Each object must have: value (string, numeric), unit (string, e.g. %, x, hrs), label (string, max 10 words), framing (string, either Reduce or Improve).',
           items: {
             type: 'object',
-            required: ['value', 'unit', 'label', 'framing'],
             properties: {
               value: { type: 'string', description: 'Numeric value as a string' },
               unit: { type: 'string', description: 'Unit like %, x, hrs, etc.' },
               label: { type: 'string', description: 'Short label, max 10 words' },
-              framing: { type: 'string', enum: ['Reduce', 'Improve'], description: 'Reduce for cost/time saved, Improve for outcome gained' },
+              framing: { type: 'string', description: 'Must be either Reduce (cost/time saved) or Improve (outcome gained)' },
             },
           },
         };
       } else if (f.type === 'beachheads') {
         valueProps[k] = {
           type: 'array',
-          description: 'Array of 2 beachhead objects',
+          description: 'Array of exactly 2 beachhead objects. Each object must have: title (string, max 6 words), before (string, current state max 15 words), after (string, future state max 15 words), ttv (string, time to value e.g. 4 weeks).',
           items: {
             type: 'object',
-            required: ['title', 'before', 'after', 'ttv'],
             properties: {
               title: { type: 'string', description: 'Beachhead title, max 6 words' },
               before: { type: 'string', description: 'Current state, max 15 words' },

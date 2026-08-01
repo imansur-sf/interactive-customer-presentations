@@ -109,7 +109,11 @@ export const QUESTIONS = [
     help: "Max 7 layers total. Customer systems always go at layer 1–2 (foundation).",
     fields: [
       { key: 'stack_sf', type: 'multiselect', label: 'Salesforce products', required: true,
-        options: ['Data Cloud', 'Agentforce', 'Marketing Cloud', 'Sales Cloud', 'Service Cloud', 'Commerce Cloud', 'Experience Cloud', 'Loyalty Management', 'MuleSoft', 'Slack', 'Platform', 'Tableau', 'Einstein'] },
+        options: ['Data Cloud', 'Agentforce', 'Sales Cloud', 'Service Cloud', 'Commerce Cloud', 'Experience Cloud',
+          'Marketing Cloud Engagement (ExactTarget)', 'Marketing Cloud Account Engagement (Pardot)', 'Marketing Cloud Advanced (Next-Gen)',
+          'Marketing Cloud Intelligence (Datorama)', 'Marketing Intelligence (Next-Gen)',
+          'Salesforce Personalization (Next-Gen)', 'Marketing Cloud Personalization (Interaction Studio)',
+          'Loyalty Management', 'Referral Management', 'MuleSoft', 'Slack', 'Platform', 'Tableau', 'Einstein'] },
       { key: 'stack_customer', type: 'textarea', label: 'Customer-side systems (optional)', rows: 2, placeholder: 'e.g. Snowflake warehouse, legacy Adobe Campaign, custom mobile app' },
     ],
   },
