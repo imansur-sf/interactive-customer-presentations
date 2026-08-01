@@ -328,6 +328,145 @@ app.post('/api/llm', async (req, res) => {
   }
 });
 
+// --- LLM Streaming Endpoint (SSE — survives Heroku 30s timeout) ---
+// Used for heavy calls like deck generation where Gemini may take >30s.
+// Sends heartbeats to keep the connection alive past Heroku's router timeout.
+app.post('/api/llm-stream', async (req, res) => {
+  if (!GEMINI_API_KEY) {
+    return res.status(503).json({ error: 'llm_not_configured' });
+  }
+
+  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'unknown';
+  const rl = checkRateLimit(ip);
+  if (!rl.ok) {
+    return res.status(429).json({ error: 'rate_limited', retryAfterMs: rl.retryAfterMs });
+  }
+
+  const { prompt, system, tier, maxTokens, tools, toolChoice } = req.body;
+  if (!prompt || typeof prompt !== 'string') {
+    return res.status(400).json({ error: 'missing_prompt' });
+  }
+  if (prompt.length > 500_000) {
+    return res.status(413).json({ error: 'prompt_too_long' });
+  }
+
+  const chosenTier = ['fast', 'balanced', 'powerful'].includes(tier) ? tier : 'balanced';
+  const model = TIER_MODELS[chosenTier] || DEFAULT_MODEL;
+  const tokens = Math.min(Math.max(parseInt(maxTokens, 10) || 8192, 100), 65536);
+  const hasTools = Array.isArray(tools) && tools.length > 0;
+
+  // Switch to SSE mode immediately — send first byte to satisfy Heroku 30s
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.write('event: heartbeat\ndata: {}\n\n');
+  res.flush && res.flush();
+
+  // Send heartbeats every 10s to keep Heroku connection alive
+  const hb = setInterval(() => {
+    res.write('event: heartbeat\ndata: {}\n\n');
+    res.flush && res.flush();
+  }, 10_000);
+
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+  console.log(`[LLM-STREAM] tier=${chosenTier} model=${model} promptLen=${prompt.length} tools=${hasTools ? tools.length : 0}`);
+
+  const geminiBody = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { maxOutputTokens: tokens }
+  };
+  if (system && typeof system === 'string' && system.trim()) {
+    geminiBody.systemInstruction = { parts: [{ text: system }] };
+  }
+  if (hasTools) {
+    geminiBody.tools = [{
+      functionDeclarations: tools.map(t => ({
+        name: t.name,
+        description: t.description || '',
+        parameters: sanitizeSchemaForGemini(t.parameters || {})
+      }))
+    }];
+    if (toolChoice && typeof toolChoice === 'string') {
+      geminiBody.toolConfig = {
+        functionCallingConfig: { mode: 'ANY', allowedFunctionNames: [toolChoice] }
+      };
+    }
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120_000);
+
+    const upstream = await fetch(geminiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(geminiBody),
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+
+    if (!upstream.ok) {
+      const body = await upstream.text().catch(() => '');
+      console.error(`[GEMINI-STREAM ERROR] ${upstream.status}`, body.slice(0, 800));
+      const errMsg = upstream.status === 429 ? 'Rate limited. Wait a moment.'
+        : upstream.status === 401 || upstream.status === 403 ? 'AI authentication failed.'
+        : `AI backend error (${upstream.status}).`;
+      res.write(`event: error\ndata: ${JSON.stringify({ error: errMsg })}\n\n`);
+      clearInterval(hb);
+      return res.end();
+    }
+
+    const data = await upstream.json();
+    const parts = data?.candidates?.[0]?.content?.parts || [];
+    const usage = data.usageMetadata || null;
+
+    let result = null;
+    if (hasTools) {
+      const fnCallPart = parts.find(p => p.functionCall);
+      if (fnCallPart) {
+        result = {
+          result: fnCallPart.functionCall.args || {},
+          functionName: fnCallPart.functionCall.name,
+          model_used: model, tier: chosenTier, usage
+        };
+      } else {
+        // Fallback: try parsing text as JSON
+        const textContent = parts.filter(p => p.text).map(p => p.text).join('');
+        const jsonMatch = textContent ? textContent.match(/\{[\s\S]*\}/) : null;
+        if (jsonMatch) {
+          try {
+            result = {
+              result: JSON.parse(jsonMatch[0]),
+              functionName: toolChoice || 'unknown',
+              model_used: model, tier: chosenTier, usage, _fallback: 'text_to_json'
+            };
+          } catch (_) {}
+        }
+        if (!result) {
+          res.write(`event: error\ndata: ${JSON.stringify({ error: 'Model did not return a valid tool call.' })}\n\n`);
+          clearInterval(hb);
+          return res.end();
+        }
+      }
+    } else {
+      const text = parts.filter(p => p.text).map(p => p.text).join('') || '';
+      result = { text, model_used: model, tier: chosenTier, usage };
+    }
+
+    res.write(`event: result\ndata: ${JSON.stringify(result)}\n\n`);
+  } catch (err) {
+    const msg = err && err.name === 'AbortError' ? 'Request timed out.' : (err.message || 'Unknown error');
+    console.error('[LLM-STREAM CATCH]', msg);
+    res.write(`event: error\ndata: ${JSON.stringify({ error: msg })}\n\n`);
+  } finally {
+    clearInterval(hb);
+    res.end();
+  }
+});
+
 // --- Batch Image Generation (Gemini) ---
 app.post('/api/generate-images', async (req, res) => {
   if (!GEMINI_API_KEY) {

@@ -119,7 +119,7 @@ export const QUESTIONS = [
   },
   {
     id: 'beachheads',
-    prompt: 'Beachheads — the two 90-day wins to lead with. For each: name, today\'s state, tomorrow\'s outcome, time-to-value.',
+    prompt: 'Use cases — the 90-day wins to lead with. Start with one; add up to 4. For each: name, today\'s state, tomorrow\'s outcome, time-to-value.',
     fields: [{ key: 'beachheads', type: 'beachheads', required: true }],
   },
   {
@@ -399,44 +399,162 @@ export class InterviewController {
       };
     }
     if (field.type === 'beachheads') {
+      const MAX_UC = 4;
       const g = document.createElement('div');
       g.className = 'q-beachheads';
-      const rows = [{}, {}];
-      const inputRefs = [];
-      rows.forEach((_, i) => {
+      const rows = [];         // data: [{title, ttv, before, after}, ...]
+      const inputRefs = [];    // DOM refs per row: [{title: el, ttv: el, ...}, ...]
+      const rowEls = [];       // DOM row elements
+
+      const rowContainer = document.createElement('div');
+      rowContainer.className = 'q-bh-rows';
+      g.appendChild(rowContainer);
+
+      // "Add use case" button
+      const addBtn = document.createElement('button');
+      addBtn.type = 'button';
+      addBtn.className = 'q-add-uc';
+      addBtn.textContent = '+ Add use case';
+      g.appendChild(addBtn);
+
+      const onSuggestOne = this.onSuggest; // capture reference
+      const interviewAnswers = this.answers;
+      const appendMsg = this.appendMessage;
+
+      function buildRow(idx) {
         const row = document.createElement('div');
         row.className = 'q-bh-row';
         row.innerHTML = `
-          <div class="q-bh-header">Use case ${i + 1}</div>
+          <div class="q-bh-header">
+            <span>Use case ${idx + 1}</span>
+            <div class="q-bh-actions">
+              <button type="button" class="q-suggest-uc" title="AI suggest for this use case">✨ Suggest</button>
+              <button type="button" class="q-remove-uc" title="Remove this use case">✕</button>
+            </div>
+          </div>
           <input type="text" class="q-input" placeholder="Name (e.g. Onboarding Copilot)" data-k="title" />
           <input type="text" class="q-input" placeholder="Time to value (e.g. 6 weeks)" data-k="ttv" />
           <textarea class="q-textarea" placeholder="Before (today's pain)" rows="2" data-k="before"></textarea>
           <textarea class="q-textarea" placeholder="After (outcome)" rows="2" data-k="after"></textarea>
         `;
+
         const inputs = row.querySelectorAll('[data-k]');
         const byKey = {};
         inputs.forEach((el) => byKey[el.dataset.k] = el);
-        inputRefs.push(byKey);
+
         const emit = () => {
           const obj = {};
           inputs.forEach((el) => obj[el.dataset.k] = el.value);
-          rows[i] = obj;
+          const actualIdx = rowEls.indexOf(row);
+          if (actualIdx >= 0) rows[actualIdx] = obj;
           onChange([...rows]);
         };
         inputs.forEach((el) => el.addEventListener('input', emit));
-        g.appendChild(row);
-      });
+
+        // Per-case suggest button
+        const suggestUcBtn = row.querySelector('.q-suggest-uc');
+        suggestUcBtn.addEventListener('click', async () => {
+          if (!onSuggestOne) return;
+          const prev = suggestUcBtn.innerHTML;
+          suggestUcBtn.disabled = true;
+          suggestUcBtn.innerHTML = '<span class="spinner"></span>';
+          try {
+            // Build a mini question schema for just one beachhead
+            const singleSchema = {
+              id: 'beachheads',
+              fields: [{
+                key: 'beachheads', type: 'beachheads', required: true,
+                _singleIndex: rowEls.indexOf(row),
+                _totalCount: rows.length,
+              }],
+            };
+            const { values = {}, rationale } = await onSuggestOne('beachheads', singleSchema, interviewAnswers);
+            // The AI returns { beachheads: [...] } — grab the first item for this row
+            const arr = values.beachheads;
+            if (Array.isArray(arr) && arr.length > 0) {
+              const item = arr[0];
+              if (item.name && !item.title) item.title = item.name;
+              ['title', 'ttv', 'before', 'after'].forEach((k) => {
+                if (byKey[k] && item[k] != null) byKey[k].value = String(item[k]);
+              });
+              emit();
+              // Flash feedback
+              row.querySelectorAll('.q-input, .q-textarea').forEach((el) => {
+                el.classList.add('flash');
+                setTimeout(() => el.classList.remove('flash'), 900);
+              });
+            }
+            if (rationale) appendMsg('assistant', `✨ ${rationale}`);
+          } catch (err) {
+            console.error('suggest-uc failed', err);
+            appendMsg('assistant', `⚠️ Couldn't suggest: ${err.userMessage || err.message}`);
+          } finally {
+            suggestUcBtn.disabled = false;
+            suggestUcBtn.innerHTML = prev;
+          }
+        });
+
+        // Remove button
+        const removeBtn = row.querySelector('.q-remove-uc');
+        removeBtn.addEventListener('click', () => {
+          const actualIdx = rowEls.indexOf(row);
+          if (actualIdx < 0 || rows.length <= 1) return;
+          rows.splice(actualIdx, 1);
+          inputRefs.splice(actualIdx, 1);
+          rowEls.splice(actualIdx, 1);
+          row.remove();
+          renumberHeaders();
+          updateAddBtn();
+          onChange([...rows]);
+        });
+
+        return { row, byKey };
+      }
+
+      function renumberHeaders() {
+        rowEls.forEach((el, i) => {
+          const span = el.querySelector('.q-bh-header span');
+          if (span) span.textContent = `Use case ${i + 1}`;
+          // Hide remove button if only 1 row
+          const rm = el.querySelector('.q-remove-uc');
+          if (rm) rm.style.display = rows.length <= 1 ? 'none' : '';
+        });
+      }
+
+      function updateAddBtn() {
+        addBtn.style.display = rows.length >= MAX_UC ? 'none' : '';
+      }
+
+      function addUseCase() {
+        const idx = rows.length;
+        if (idx >= MAX_UC) return;
+        rows.push({});
+        const { row, byKey } = buildRow(idx);
+        inputRefs.push(byKey);
+        rowEls.push(row);
+        rowContainer.appendChild(row);
+        renumberHeaders();
+        updateAddBtn();
+        onChange([...rows]);
+      }
+
+      addBtn.addEventListener('click', addUseCase);
+
+      // Start with 1 use case
+      addUseCase();
+
       return {
         el: g,
         setValue: (arr) => {
           if (!Array.isArray(arr)) return;
-          arr.slice(0, 2).forEach((row, i) => {
-            if (!row) return;
+          // Adjust row count to match array length
+          while (rows.length < arr.length && rows.length < MAX_UC) addUseCase();
+          arr.slice(0, rows.length).forEach((item, i) => {
+            if (!item) return;
             const refs = inputRefs[i];
-            // The AI may return the use case name as "title" or "name" — handle both
-            if (row.name && !row.title) row.title = row.name;
+            if (item.name && !item.title) item.title = item.name;
             ['title', 'ttv', 'before', 'after'].forEach((k) => {
-              if (refs[k] && row[k] != null) refs[k].value = String(row[k]);
+              if (refs[k] && item[k] != null) refs[k].value = String(item[k]);
             });
             const obj = {};
             Object.entries(refs).forEach(([k, el]) => obj[k] = el.value);

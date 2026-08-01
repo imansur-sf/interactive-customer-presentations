@@ -604,6 +604,73 @@
       text-transform: uppercase;
       letter-spacing: 0.06em;
       color: rgba(255,255,255,0.55);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .q-bh-actions {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .q-suggest-uc {
+      background: transparent;
+      color: rgba(0, 179, 255, 0.85);
+      border: 1px solid rgba(0, 179, 255, 0.3);
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .q-suggest-uc:hover:not(:disabled) {
+      background: rgba(0, 179, 255, 0.10);
+      border-color: rgba(0, 179, 255, 0.6);
+    }
+    .q-suggest-uc:disabled { opacity: 0.5; cursor: not-allowed; }
+    .q-remove-uc {
+      background: transparent;
+      color: rgba(255,255,255,0.4);
+      border: 1px solid rgba(255,255,255,0.12);
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+      padding: 0;
+    }
+    .q-remove-uc:hover {
+      background: rgba(255,80,80,0.15);
+      color: #ff6b6b;
+      border-color: rgba(255,80,80,0.4);
+    }
+    .q-add-uc {
+      background: transparent;
+      color: rgba(0, 179, 255, 0.8);
+      border: 1px dashed rgba(0, 179, 255, 0.3);
+      padding: 10px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      width: 100%;
+      text-align: center;
+      transition: all 0.15s ease;
+      margin-top: 4px;
+    }
+    .q-add-uc:hover {
+      background: rgba(0, 179, 255, 0.06);
+      border-color: rgba(0, 179, 255, 0.5);
+      color: #fff;
+    }
+    .q-bh-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
     }
     .q-bh-row textarea {
       grid-column: 1 / -1;

@@ -34,6 +34,10 @@ export async function suggestAnswer({ questionId, deckContext, questionSchema })
  * then posts to the same-origin /api/llm endpoint which proxies to Gemini.
  */
 export async function callLLM(payload) {
+  const heavyTurns = ['generate', 'freeform'];
+  if (heavyTurns.includes(payload?.turn)) {
+    return callServerStream(payload);
+  }
   return callServer(payload);
 }
 // Back-compat alias for older imports.
@@ -105,6 +109,100 @@ async function callServer(payload) {
   }
 
   return { ...args, _meta: { provider: 'gemini', model: data.model_used, tier: data.tier, usage: data.usage } };
+}
+
+// -------------------- Streaming path (SSE — for heavy calls) --------------------
+async function callServerStream(payload) {
+  const {
+    turn = 'answer',
+    questionId,
+    slideId,
+    userMessage = '',
+    deckContext = {},
+    questionSchema,
+    model = 'sonnet',
+  } = payload || {};
+
+  const tier = TIER_MAP[model] || DEFAULT_TIER;
+  const systemText = await buildSystemText();
+  const { userPrompt, tool } = buildTurnPrompt({
+    turn, questionId, slideId, userMessage, deckContext, questionSchema,
+  });
+
+  const body = {
+    prompt: userPrompt,
+    system: systemText,
+    tier,
+    maxTokens: 16384,
+    tools: [{
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.input_schema,
+    }],
+    toolChoice: tool.name,
+  };
+
+  let res;
+  try {
+    res = await fetch('/api/llm-stream', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    throwUser('server_unreachable', `Server not reachable: ${err.message}.`);
+  }
+
+  // If the server returned a non-SSE error (e.g. 400, 503 before streaming started)
+  const ct = res.headers.get('content-type') || '';
+  if (!ct.includes('text/event-stream')) {
+    const raw = await res.text();
+    const data = safeParse(raw);
+    const detail = data?.error || raw.slice(0, 400);
+    throwUser(`server_${res.status}`, renderErrorMessage(res.status, detail), { status: res.status, detail });
+  }
+
+  // Parse SSE events from the stream
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // Split on double newline (SSE event boundary)
+    const parts = buffer.split('\n\n');
+    buffer = parts.pop(); // Keep the incomplete last chunk
+
+    for (const part of parts) {
+      const lines = part.split('\n');
+      let eventType = '';
+      let dataStr = '';
+      for (const line of lines) {
+        if (line.startsWith('event: ')) eventType = line.slice(7).trim();
+        else if (line.startsWith('data: ')) dataStr = line.slice(6);
+      }
+
+      if (eventType === 'heartbeat') continue; // Ignore keepalive
+
+      if (eventType === 'error') {
+        const errData = safeParse(dataStr) || {};
+        throwUser('stream_error', errData.error || 'AI backend error. Try again in a moment.');
+      }
+
+      if (eventType === 'result') {
+        const data = safeParse(dataStr);
+        if (!data) throwUser('bad_stream_json', 'Server returned invalid streaming result.');
+        const args = data.result;
+        if (!args) throwUser('no_tool_use', 'Model did not return a tool call in streaming response.');
+        return { ...args, _meta: { provider: 'gemini', model: data.model_used, tier: data.tier, usage: data.usage } };
+      }
+    }
+  }
+
+  throwUser('stream_incomplete', 'Streaming connection closed without a result. Please try again.');
 }
 
 function renderErrorMessage(status, detail) {
@@ -200,9 +298,12 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
           },
         };
       } else if (f.type === 'beachheads') {
+        const isSingle = f._singleIndex != null;
         valueProps[k] = {
           type: 'array',
-          description: 'Array of exactly 2 beachhead objects. Each object MUST have ALL four fields populated: title (REQUIRED — the use case name, max 6 words, e.g. Onboarding Copilot), before (current state max 15 words), after (future state max 15 words), ttv (time to value e.g. 4 weeks). Do NOT leave title empty.',
+          description: isSingle
+            ? `Return exactly 1 beachhead use case object (suggesting for use case ${f._singleIndex + 1} of ${f._totalCount || 1}). The object MUST have ALL four fields populated: title (REQUIRED — the use case name, max 6 words, e.g. Onboarding Copilot), before (current state max 15 words), after (future state max 15 words), ttv (time to value e.g. 4 weeks). Do NOT leave title empty.`
+            : 'Array of 1-4 beachhead use case objects matching the number requested. Each object MUST have ALL four fields populated: title (REQUIRED — the use case name, max 6 words, e.g. Onboarding Copilot), before (current state max 15 words), after (future state max 15 words), ttv (time to value e.g. 4 weeks). Do NOT leave title empty.',
           items: {
             type: 'object',
             properties: {
