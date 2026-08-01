@@ -25,6 +25,11 @@ export const QUESTIONS = [
     ],
   },
   {
+    id: 'accent',
+    prompt: "What's the customer's primary brand color? This becomes the accent color used across the deck.",
+    fields: [{ key: 'accent_hex', type: 'hex', required: true, placeholder: '#DA1710' }],
+  },
+  {
     id: 'industry',
     prompt: 'What industry are they in?',
     fields: [{
@@ -143,11 +148,6 @@ export const QUESTIONS = [
       { key: 'closing_step_2', type: 'text', label: 'Medium-term', required: true, placeholder: 'e.g. Approve 6-week POC start' },
       { key: 'closing_step_3', type: 'text', label: 'Destination / outcome', required: true, placeholder: 'e.g. A unified customer view powering every brand in your portfolio' },
     ],
-  },
-  {
-    id: 'accent',
-    prompt: "What's the customer's primary brand color? This becomes the `--accent` variable used across the deck.",
-    fields: [{ key: 'accent_hex', type: 'hex', required: true, placeholder: '#DA1710' }],
   },
   {
     id: 'animations',
@@ -342,8 +342,8 @@ export class InterviewController {
     }
 
     // Actions row: Suggest (left) + Submit (right)
-    // Hide suggest button on Q1 (customer-name) and Q11 (beachheads — has per-use-case suggest)
-    const hideSuggest = q.id === 'customer-name' || q.id === 'beachheads';
+    // Hide suggest button on customer-name, accent (color picker), and beachheads (has per-use-case suggest)
+    const hideSuggest = q.id === 'customer-name' || q.id === 'accent' || q.id === 'beachheads';
 
     const actions = document.createElement('div');
     actions.className = 'q-actions';

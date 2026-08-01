@@ -402,8 +402,11 @@ async function handleProgressiveUpdate(questionId, answers) {
   // Immediate updates (no AI call)
   if (mapping.immediate) {
     if (mapping.action === 'accent' && answers.accent_hex) {
-      state.deckDoc.documentElement.style.setProperty('--accent', answers.accent_hex);
-      state.deckDoc.documentElement.style.setProperty('--accent-l', lightenHex(answers.accent_hex, 0.25));
+      const root = state.deckDoc.documentElement;
+      root.style.setProperty('--accent', answers.accent_hex);
+      root.style.setProperty('--accent-l', lightenHex(answers.accent_hex, 0.25));
+      root.style.setProperty('--accent-fg', contrastColor(answers.accent_hex));
+      root.style.setProperty('--accent-bg-dark', darkenHex(answers.accent_hex, 0.3));
       rerenderPreview();
     }
     if (mapping.action === 'cobrand') {
