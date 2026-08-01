@@ -333,8 +333,10 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
             },
           },
         };
+      } else if (f.type === 'hex') {
+        valueProps[k] = { type: 'string', description: `A hex color code (e.g. #DA1710) for: ${f.label || k}. Look up the customer's brand color from their website or public branding. Return a 6-digit hex code with # prefix.` };
       } else {
-        // text, textarea, radio, hex — all return strings
+        // text, textarea, radio — all return strings
         let desc = `Value for: ${f.label || k}`;
         if (f.type === 'radio' && f.options) {
           desc += `. Choose one of: ${f.options.join(', ')}`;

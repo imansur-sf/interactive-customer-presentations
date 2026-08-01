@@ -342,8 +342,8 @@ export class InterviewController {
     }
 
     // Actions row: Suggest (left) + Submit (right)
-    // Hide suggest button on customer-name, accent (color picker), and beachheads (has per-use-case suggest)
-    const hideSuggest = q.id === 'customer-name' || q.id === 'accent' || q.id === 'beachheads';
+    // Hide suggest button on customer-name and beachheads (has per-use-case suggest)
+    const hideSuggest = q.id === 'customer-name' || q.id === 'beachheads';
 
     const actions = document.createElement('div');
     actions.className = 'q-actions';
