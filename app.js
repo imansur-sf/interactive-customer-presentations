@@ -17,13 +17,14 @@
 //   with the current slide's HTML and apply the returned patches.
 
 import { InterviewController } from './interview.js';
-import { callLLM, applyPatches, suggestAnswer } from './llm.js';
+import { callLLM, applyPatches, suggestAnswer, DECK_TYPE_CONFIG } from './llm.js';
 
 const LS = {
   sessionId: 'icp.sessionId',
 };
 
-const SLIDE_LABEL_OVERRIDES = { 0: 'Hero', 11: 'Attribution' };
+// Label overrides applied by index — recalculated after reorder
+let SLIDE_LABEL_OVERRIDES = { 0: 'Hero' };
 
 const state = {
   deckDoc: null,
@@ -87,11 +88,16 @@ async function loadReferenceDeck() {
 
 function enumerateSlides() {
   const slideNodes = state.deckDoc.querySelectorAll('.slide');
-  state.slides = Array.from(slideNodes).map((el, i) => {
+  let visibleIdx = 0;
+  state.slides = [];
+  Array.from(slideNodes).forEach((el) => {
+    // Skip hidden slides (deck type filtering)
+    if (el.style.display === 'none') return;
     const dataSection = el.getAttribute('data-section') || '';
-    const label = SLIDE_LABEL_OVERRIDES[i] || dataSection || `Slide ${i + 1}`;
-    if (!el.id) el.id = `slide-${i}`;
-    return { id: el.id, label, dataSection, idx: i };
+    const label = SLIDE_LABEL_OVERRIDES[visibleIdx] || dataSection || `Slide ${visibleIdx + 1}`;
+    if (!el.id) el.id = `slide-${visibleIdx}`;
+    state.slides.push({ id: el.id, label, dataSection, idx: visibleIdx });
+    visibleIdx++;
   });
 }
 
@@ -232,6 +238,9 @@ async function generateDeck(answers) {
 
     const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
 
+    // Reorder + hide slides based on deck type
+    applyDeckTypeLayout(answers.deck_type);
+
     // Force-apply accent + cobrand again AFTER patches (safety net)
     applyAccentAndCobrand(answers);
     rerenderPreview();
@@ -267,6 +276,8 @@ function applyAccentAndCobrand(answers) {
     const root = state.deckDoc.documentElement;
     root.style.setProperty('--accent', answers.accent_hex);
     root.style.setProperty('--accent-l', lightenHex(answers.accent_hex, 0.25));
+    root.style.setProperty('--accent-fg', contrastColor(answers.accent_hex));
+    root.style.setProperty('--accent-bg-dark', darkenHex(answers.accent_hex, 0.3));
   }
   if (answers.customer) {
     const pillSpan = state.deckDoc.querySelector('.cobrand-pill span');
@@ -294,6 +305,79 @@ function applyAccentAndCobrand(answers) {
       }
     }
   }
+}
+
+// ------------------------------------------------------------------ Deck type layout
+// Reorder slides in deckDoc to match the deck type's slideOrder, hide unused.
+function applyDeckTypeLayout(deckType) {
+  const config = DECK_TYPE_CONFIG[deckType] || DECK_TYPE_CONFIG['Tell-Show-Tell'];
+  const activeOrder = config.slideOrder; // e.g. ['hero','gap','why-now',...]
+  const allSlideEls = Array.from(state.deckDoc.querySelectorAll('.slide'));
+
+  // Build a map: kebab-id → DOM element
+  const kebabToEl = {};
+  allSlideEls.forEach((el, i) => {
+    const ds = el.getAttribute('data-section') || '';
+    // Reuse the same label → kebab logic as kebabForSlide
+    const label = (i === 0 ? 'Hero' : ds) || `Slide ${i + 1}`;
+    const kebab = labelToKebab(label);
+    kebabToEl[kebab] = el;
+  });
+
+  // The parent container that holds slides
+  const container = allSlideEls[0]?.parentElement;
+  if (!container) return;
+
+  // Show active slides and append in the correct order
+  activeOrder.forEach(kebab => {
+    const el = kebabToEl[kebab];
+    if (el) {
+      el.style.display = '';
+      container.appendChild(el); // moves it to the end in new order
+    }
+  });
+
+  // Hide unused slides (move them to end, hidden)
+  allSlideEls.forEach(el => {
+    const ds = el.getAttribute('data-section') || '';
+    const i = allSlideEls.indexOf(el);
+    const label = (i === 0 ? 'Hero' : ds) || `Slide ${i + 1}`;
+    const kebab = labelToKebab(label);
+    if (!activeOrder.includes(kebab)) {
+      el.style.display = 'none';
+      container.appendChild(el);
+    }
+  });
+
+  // Update label overrides: Hero is always first, Thank You is always last active
+  const lastIdx = activeOrder.length - 1;
+  SLIDE_LABEL_OVERRIDES = { 0: 'Hero' };
+  if (activeOrder[lastIdx] === 'thank-you') {
+    SLIDE_LABEL_OVERRIDES[lastIdx] = 'Thank You';
+  }
+
+  // Re-enumerate visible slides + re-render nav
+  enumerateSlides();
+  renderNav();
+}
+
+// Convert a slide label to kebab-case id (mirrors kebabForSlide map)
+function labelToKebab(label) {
+  const map = {
+    'Hero': 'hero',
+    'Why Now': 'why-now',
+    'The Gap': 'gap',
+    'How It Works': 'stack',
+    'AI in Action': 'ai-in-action',
+    'Real-Time Data': 'real-time',
+    'Start Here': 'beachheads',
+    'Where This Goes': 'scale',
+    'What It Does Today': 'proof',
+    'The Path Forward': 'roadmap',
+    'Next Steps': 'closing',
+    'Thank You': 'thank-you',
+  };
+  return map[label] || label.toLowerCase().replace(/\s+/g, '-');
 }
 
 // ------------------------------------------------------------------ Progressive updates
@@ -466,7 +550,7 @@ function kebabForSlide(slide) {
     'What It Does Today': 'proof',
     'The Path Forward': 'roadmap',
     'Next Steps': 'closing',
-    'Attribution': 'attribution',
+    'Thank You': 'thank-you',
   };
   return map[slide.label] || slide.label.toLowerCase().replace(/\s+/g, '-');
 }
@@ -633,6 +717,27 @@ function escapeAttr(s) { return escapeHtml(s); }
 function slugify(s) {
   return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 }
+/** Returns '#fff' or '#0B0930' depending on whether the hex is dark or light */
+function contrastColor(hex) {
+  hex = hex.replace('#', '');
+  if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+  const r = parseInt(hex.slice(0,2), 16);
+  const g = parseInt(hex.slice(2,4), 16);
+  const b = parseInt(hex.slice(4,6), 16);
+  const lum = (0.299*r + 0.587*g + 0.114*b) / 255;
+  return lum > 0.5 ? '#0B0930' : '#ffffff';
+}
+
+/** Darken a hex color by a given amount (0–1) */
+function darkenHex(hex, amount) {
+  hex = hex.replace('#', '');
+  if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+  const r = Math.max(0, Math.round(parseInt(hex.slice(0,2), 16) * (1 - amount)));
+  const g = Math.max(0, Math.round(parseInt(hex.slice(2,4), 16) * (1 - amount)));
+  const b = Math.max(0, Math.round(parseInt(hex.slice(4,6), 16) * (1 - amount)));
+  return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
+}
+
 function lightenHex(hex, amount) {
   hex = hex.replace('#', '');
   if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];

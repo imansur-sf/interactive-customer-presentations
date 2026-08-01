@@ -385,6 +385,8 @@ export class InterviewController {
 
     // Submit — advance to next question
     submitBtn.addEventListener('click', () => {
+      // Normalize URL fields before storing
+      if (state.customer_url) state.customer_url = normalizeUrl(state.customer_url);
       this.appendMessage('user', summariseAnswer(q, state));
       Object.assign(this.answers, state);
       // Fire progressive update (non-blocking)
@@ -900,6 +902,14 @@ function summariseAnswer(q, state) {
     }
   }
   return parts.join(' · ') || '(answered)';
+}
+
+/** Normalize a URL input: company.com → https://company.com */
+function normalizeUrl(input) {
+  if (!input || !input.trim()) return '';
+  let url = input.trim();
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+  try { new URL(url); return url; } catch { return ''; }
 }
 
 function escapeHtml(s) {

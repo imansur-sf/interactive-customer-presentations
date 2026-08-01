@@ -15,6 +15,25 @@ const TIER_MAP = {
 };
 const DEFAULT_TIER = 'powerful';
 
+// Deck type → slide order and hero style
+export const DECK_TYPE_CONFIG = {
+  'Tell-Show-Tell': {
+    slideOrder: ['hero', 'why-now', 'gap', 'stack', 'ai-in-action', 'real-time', 'beachheads', 'scale', 'proof', 'roadmap', 'closing', 'thank-you'],
+    heroStyle: 'insight-led',
+    description: 'Open with insight, demonstrate, close with path forward',
+  },
+  'POV (Point of View)': {
+    slideOrder: ['hero', 'gap', 'why-now', 'proof', 'stack', 'beachheads', 'closing', 'thank-you'],
+    heroStyle: 'opinion-led',
+    description: 'Lead with a bold commercial opinion, data-heavy, challenge-led',
+  },
+  'Proposal / Business Case': {
+    slideOrder: ['hero', 'proof', 'gap', 'beachheads', 'roadmap', 'stack', 'closing', 'thank-you'],
+    heroStyle: 'outcome-led',
+    description: 'Outcome-first, ROI-anchored, designed to get sign-off',
+  },
+};
+
 // -------------------- Public API --------------------
 
 /** Convenience wrapper for the Suggest button */
@@ -451,6 +470,20 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
     const customerName = deckContext?.answers?.customer || 'Customer';
     const customerUrl = deckContext?.answers?.customer_url || '';
     const logoUrl = deckContext?.logoUrl || '';
+    // Safely extract hostname from customerUrl (may be missing protocol)
+    let cobrandExtra = '';
+    if (logoUrl) {
+      cobrandExtra = ` Also replace the cobrand pill <img> src with "${logoUrl}".`;
+    } else if (customerUrl) {
+      try {
+        const normalized = /^https?:\/\//i.test(customerUrl) ? customerUrl : 'https://' + customerUrl;
+        const hostname = new URL(normalized).hostname;
+        cobrandExtra = ` Also try to replace the cobrand pill <img> src — construct a likely logo URL from the customer domain (e.g. https://logo.clearbit.com/${hostname}).`;
+      } catch (_) {
+        cobrandExtra = ' Also try to replace the cobrand pill <img> src — construct a likely logo URL from the customer domain.';
+      }
+    }
+
     const generateLines = [
       'Generate the COMPLETE personalized deck from ALL interview answers.',
       '',
@@ -458,9 +491,7 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
       '',
       'MANDATORY FIRST PATCHES (apply these BEFORE any slide content):',
       `1. ACCENT COLOR: The customer chose ${accentHex}. You MUST emit a "meta" patch: slide_id:"meta", op:"set-style", selector:":root::style(--accent)", new_html:"${accentHex}". Also emit a second meta patch for --accent-l with a 20% lighter variant of the same hue.`,
-      `2. COBRAND PILL: Replace the text "SF Composer" inside .cobrand-pill <span> with "${customerName}".` +
-        (logoUrl ? ` Also replace the cobrand pill <img> src with "${logoUrl}".` :
-         customerUrl ? ` Also try to replace the cobrand pill <img> src — construct a likely logo URL from the customer domain (e.g. https://logo.clearbit.com/${new URL(customerUrl).hostname}).` : ''),
+      `2. COBRAND PILL: Replace the text "SF Composer" inside .cobrand-pill <span> with "${customerName}".${cobrandExtra}`,
       '',
       'THEN generate patches for ALL slides with fully personalized content:',
       '- Hero: leading_statement as the big H1. Accent-colored eyebrow with industry tags. KPI stat-cards from hero_kpis (value + unit + label + framing).',
@@ -474,17 +505,47 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
       '- What It Does Today: proof quote or stat from the proof field.',
       '- The Path Forward: phase_1 (0-90 days) + phase_2 (6+ months) roadmap items.',
       '- Next Steps: 3-step CTA from closing_step_1, closing_step_2, closing_step_3.',
-      '- Attribution: keep Salesforce branding, add customer name.',
+      '- Thank You: keep Salesforce branding, add customer name. Keep the "Built on: Gemini AI / Heroku" card and SaaSy Solutions credits.',
       '',
-      'COLOR RULES:',
-      `- Use var(--accent) for eyebrows, bc-badges, bc-dots, card accent borders, CTA primary buttons, phase-badges.`,
-      '- Follow the 80/20 rule: 80% Salesforce primary blues (#001B41 navy, #032D60 dark, #066AFE electric), 20% accent.',
-      '- NEVER override the primary navy/blue palette with the accent color.',
+      'COLOR RULES — ACCENT AS PRIMARY BACKGROUND:',
+      `- The customer's accent color (${accentHex}) should be used as the PRIMARY BACKGROUND on key slides:`,
+      '  * Hero slide: replace --grad-evening with a gradient from var(--accent-bg-dark) to var(--accent). Text color: var(--accent-fg).',
+      '  * Dark slides (Why Now, Proof/What It Does Today, Closing/Next Steps, Thank You): use var(--accent) as solid background. Text: var(--accent-fg).',
+      '  * The 3px accent stripe at top/bottom of these slides should use var(--accent-l) (lighter tint).',
+      '- Light slides (Gap, Stack, Beachheads, Scale, Roadmap): keep white/light backgrounds. Use var(--accent) for badges, dots, card accent borders.',
+      '- Use var(--accent-fg) for ALL text on accent-colored backgrounds (it auto-adjusts to white or dark based on contrast).',
+      '- Salesforce primary blues (#001E5B, #022AC0, #066AFE, #00B3FF) should still appear on light slides for labels, eyebrows, and secondary text.',
       '',
       'COPY RULES:',
       '- ALL copy must be specific to the customer name, industry, and use cases. No generic placeholders.',
       '- Enforce every copy-length cap from STYLE-GUIDE.md (≤6-word bc-titles, ≤15-word before/after, etc.).',
     ];
+
+    // Inject deck-type-specific slide order + hero style instructions
+    const deckType = deckContext?.answers?.deck_type || 'Tell-Show-Tell';
+    const dtConfig = DECK_TYPE_CONFIG[deckType] || DECK_TYPE_CONFIG['Tell-Show-Tell'];
+    const activeSlides = dtConfig.slideOrder;
+    const allSlides = DECK_TYPE_CONFIG['Tell-Show-Tell'].slideOrder; // full set
+    const skippedSlides = allSlides.filter(s => !activeSlides.includes(s));
+
+    generateLines.push(
+      '',
+      `DECK TYPE: "${deckType}" (${dtConfig.description})`,
+      `ACTIVE SLIDES (in order): ${activeSlides.join(', ')}`,
+      skippedSlides.length
+        ? `SKIPPED SLIDES (do NOT generate patches for these): ${skippedSlides.join(', ')}`
+        : 'All slides are active for this deck type.',
+      '',
+      'SLIDE ORDER: The patches you emit must target ONLY the active slides listed above.',
+      'The front-end will reorder and hide slides based on the deck type — you do NOT need to change slide positions.',
+      '',
+      `HERO STYLE: "${dtConfig.heroStyle}"`,
+      dtConfig.heroStyle === 'insight-led'
+        ? '- Hero should open with a sharp industry insight or data point that creates urgency. The H1 should feel like a conference keynote opener.'
+        : dtConfig.heroStyle === 'opinion-led'
+        ? '- Hero should open with a bold, opinionated commercial thesis — a "we believe" statement that challenges the status quo. Make it provocative but defensible.'
+        : '- Hero should open with a clear outcome statement — what the customer will achieve (ROI, efficiency gain, revenue impact). Lead with the business result, not the technology.',
+    );
 
     // Inject meeting notes into generate prompt if available
     const genNotes = deckContext?.meetingNotes;
