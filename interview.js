@@ -213,6 +213,39 @@ export class InterviewController {
     const state = {};
     const setters = {}; // field.key → (value) => void — used by Suggest
 
+    // Create buttons early so validate() can reference submitBtn, and
+    // suggestBtn is available for the event listener below.
+    const submitBtn = document.createElement('button');
+    submitBtn.type = 'button';
+    submitBtn.className = 'q-submit';
+    submitBtn.textContent = this.index === QUESTIONS.length - 1 ? 'Generate deck →' : 'Next →';
+
+    const suggestBtn = document.createElement('button');
+    suggestBtn.type = 'button';
+    suggestBtn.className = 'q-suggest';
+    suggestBtn.innerHTML = '<span class="sparkle">✨</span> Suggest an answer';
+    suggestBtn.title = 'Ask the AI to fill this question for you based on what it knows so far.';
+
+    // Validate required fields — declared before renderControl calls so that
+    // controls that fire onChange immediately (e.g. multiselect seeding [])
+    // don't hit a temporal dead zone.
+    const validate = () => {
+      let ok = true;
+      for (const f of q.fields) {
+        if (!f.required) continue;
+        const v = state[f.key];
+        if (v == null) { ok = false; break; }
+        if (typeof v === 'string' && !v.trim()) { ok = false; break; }
+        if (Array.isArray(v)) {
+          if (v.length === 0) { ok = false; break; }
+          if (f.type === 'kpi-grid' && !v.every((r) => r.value && r.label)) { ok = false; break; }
+          if (f.type === 'beachheads' && !v.every((r) => r.title && r.before && r.after)) { ok = false; break; }
+        }
+      }
+      submitBtn.disabled = !ok;
+    };
+
+    // Render each field's control
     q.fields.forEach((field) => {
       const fieldEl = document.createElement('div');
       fieldEl.className = 'q-field';
@@ -238,38 +271,11 @@ export class InterviewController {
     // Actions row: Suggest (left) + Submit (right)
     const actions = document.createElement('div');
     actions.className = 'q-actions';
-
-    const suggestBtn = document.createElement('button');
-    suggestBtn.type = 'button';
-    suggestBtn.className = 'q-suggest';
-    suggestBtn.innerHTML = '<span class="sparkle">✨</span> Suggest an answer';
-    suggestBtn.title = 'Ask the AI to fill this question for you based on what it knows so far.';
-
-    const submitBtn = document.createElement('button');
-    submitBtn.type = 'button';
-    submitBtn.className = 'q-submit';
-    submitBtn.textContent = this.index === QUESTIONS.length - 1 ? 'Generate deck →' : 'Next →';
-
     actions.appendChild(suggestBtn);
     actions.appendChild(submitBtn);
     wrap.appendChild(actions);
 
-    // Validate required fields
-    const validate = () => {
-      let ok = true;
-      for (const f of q.fields) {
-        if (!f.required) continue;
-        const v = state[f.key];
-        if (v == null) { ok = false; break; }
-        if (typeof v === 'string' && !v.trim()) { ok = false; break; }
-        if (Array.isArray(v)) {
-          if (v.length === 0) { ok = false; break; }
-          if (f.type === 'kpi-grid' && !v.every((r) => r.value && r.label)) { ok = false; break; }
-          if (f.type === 'beachheads' && !v.every((r) => r.title && r.before && r.after)) { ok = false; break; }
-        }
-      }
-      submitBtn.disabled = !ok;
-    };
+    // Initial validation
     validate();
 
     // Suggest button — ask the LLM to fill this question
