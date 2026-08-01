@@ -19,7 +19,10 @@ export const QUESTIONS = [
   {
     id: 'customer-name',
     prompt: "Let's start with the basics. Who is this deck for?",
-    fields: [{ key: 'customer', type: 'text', placeholder: 'e.g. Westpac', required: true, label: 'Customer name' }],
+    fields: [
+      { key: 'customer', type: 'text', placeholder: 'e.g. Westpac', required: true, label: 'Customer name' },
+      { key: 'customer_url', type: 'text', placeholder: 'e.g. https://www.lululemon.com', required: false, label: 'Customer website (helps AI suggest better answers)' },
+    ],
   },
   {
     id: 'industry',
