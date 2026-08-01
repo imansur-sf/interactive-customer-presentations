@@ -191,9 +191,19 @@ export class InterviewController {
     this.container.appendChild(msg);
 
     // Render the widget
-    const widget = this.renderWidget(q);
+    let widget;
+    try {
+      widget = this.renderWidget(q);
+    } catch (err) {
+      console.error('renderWidget error for question', q.id, err);
+      widget = document.createElement('div');
+      widget.className = 'q-widget';
+      widget.innerHTML = `<div style="color:#f88;padding:8px;">Widget error: ${err.message}. Check console.</div>`;
+    }
     this.container.appendChild(widget);
     this.container.scrollTop = this.container.scrollHeight;
+    // Ensure scroll after DOM paint (some browsers need a tick)
+    requestAnimationFrame(() => { this.container.scrollTop = this.container.scrollHeight; });
   }
 
   renderWidget(q) {
