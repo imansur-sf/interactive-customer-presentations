@@ -36,7 +36,6 @@ const state = {
   busy: false,
   scrapedLogo: null, // logo URL scraped from customer website
   meetingNotes: '',   // optional meeting notes / context from user
-  googleConfig: null, // { clientId, apiKey, appId, configured }
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -187,18 +186,9 @@ async function startInterview() {
   document.getElementById('btn-send').disabled = false;
   document.getElementById('chat-textarea').placeholder = 'Type a free-form request… (⏎ to send)';
 
-  // Fetch Google config (non-blocking — if it fails, picker just won't show)
-  if (!state.googleConfig) {
-    try {
-      const res = await fetch('/api/google-config');
-      if (res.ok) state.googleConfig = await res.json();
-    } catch (_) { /* Google Drive picker will just be hidden */ }
-  }
-
   state.interview = new InterviewController({
     container: log,
     appendMessage,
-    googleConfig: state.googleConfig,
     onComplete: async (answers, meetingNotes) => {
       state.answers = answers;
       state.meetingNotes = meetingNotes || '';
