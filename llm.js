@@ -133,7 +133,7 @@ async function callServerStream(payload) {
     prompt: userPrompt,
     system: systemText,
     tier,
-    maxTokens: 16384,
+    maxTokens: 32768,
     tools: [{
       name: tool.name,
       description: tool.description,

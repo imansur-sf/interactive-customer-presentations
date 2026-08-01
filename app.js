@@ -217,7 +217,7 @@ async function generateDeck(answers) {
         // the target slot structure it's patching against.
         slides: state.slides.map((s) => ({ idx: s.idx, label: s.label, section: s.dataSection })),
       },
-      model: 'sonnet',
+      model: 'opus', // powerful tier — handles large system prompt + full deck gen
     });
 
     const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);

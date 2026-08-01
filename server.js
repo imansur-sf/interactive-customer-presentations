@@ -398,7 +398,7 @@ app.post('/api/llm-stream', async (req, res) => {
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120_000);
+    const timeout = setTimeout(() => controller.abort(), 240_000); // 4 min — deck gen can be slow
 
     const upstream = await fetch(geminiUrl, {
       method: 'POST',
