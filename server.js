@@ -28,9 +28,9 @@ const MAX_IMAGE_GEN_BATCH = 12;
 // IMPORTANT: Verify these models are available for your key before deploying.
 // List models: curl "https://generativelanguage.googleapis.com/v1beta/models?key=$KEY"
 const TIER_MODELS = {
-  fast: 'gemini-3.5-flash-lite',
-  balanced: 'gemini-3.5-flash',
-  powerful: 'gemini-3.1-pro-preview'
+  fast: 'gemini-2.5-flash-lite',
+  balanced: 'gemini-2.5-flash',
+  powerful: 'gemini-2.5-pro'
 };
 const DEFAULT_MODEL = TIER_MODELS.balanced;
 

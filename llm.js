@@ -202,11 +202,11 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
       } else if (f.type === 'beachheads') {
         valueProps[k] = {
           type: 'array',
-          description: 'Array of exactly 2 beachhead objects. Each object must have: title (string, max 6 words), before (string, current state max 15 words), after (string, future state max 15 words), ttv (string, time to value e.g. 4 weeks).',
+          description: 'Array of exactly 2 beachhead objects. Each object MUST have ALL four fields populated: title (REQUIRED — the use case name, max 6 words, e.g. Onboarding Copilot), before (current state max 15 words), after (future state max 15 words), ttv (time to value e.g. 4 weeks). Do NOT leave title empty.',
           items: {
             type: 'object',
             properties: {
-              title: { type: 'string', description: 'Beachhead title, max 6 words' },
+              title: { type: 'string', description: 'REQUIRED — the use case name shown as the heading, e.g. Onboarding Copilot or Real-Time Segmentation. Max 6 words. Must not be empty.' },
               before: { type: 'string', description: 'Current state, max 15 words' },
               after: { type: 'string', description: 'Future state, max 15 words' },
               ttv: { type: 'string', description: 'Time to value, e.g. 4 weeks' },
@@ -312,7 +312,16 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
   ].join('\n');
 
   let userPrompt;
-  if (turn === 'edit') {
+  if (turn === 'freeform') {
+    userPrompt = [
+      'The user is making a free-form request outside the standard interview flow.',
+      `Their instruction: ${JSON.stringify(userMessage)}`,
+      '',
+      contextBlock,
+      '',
+      'Apply whatever changes the user requests as patches to the deck. This could be anything: creating new content, modifying existing slides, building architecture diagrams, rewriting copy, etc. Use your best judgment about which slide(s) to modify. If the request doesn\'t map to an existing slide, pick the most relevant one. Always return a helpful `message` explaining what you did.',
+    ].join('\n');
+  } else if (turn === 'edit') {
     userPrompt = [
       `The user is editing slide "${slideId || 'unknown'}".`,
       `Their instruction: ${JSON.stringify(userMessage)}`,
