@@ -26,8 +26,12 @@ export const QUESTIONS = [
   },
   {
     id: 'accent',
-    prompt: "What's the customer's primary brand color? This becomes the accent color used across the deck.",
-    fields: [{ key: 'accent_hex', type: 'hex', required: true, placeholder: '#DA1710' }],
+    prompt: "What are the customer's brand colors? Primary becomes the background on key slides, secondary is used for accents and highlights.",
+    fields: [
+      { key: 'accent_hex', type: 'hex', required: true, placeholder: '#DA1710', label: 'Primary color (background)' },
+      { key: 'secondary_hex', type: 'hex', required: true, placeholder: '#022AC0', label: 'Secondary color (accents)' },
+      { key: 'tertiary_hex', type: 'hex', required: false, placeholder: '#00B3FF', label: 'Tertiary color (optional)' },
+    ],
   },
   {
     id: 'industry',

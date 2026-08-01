@@ -269,16 +269,29 @@ async function generateDeck(answers) {
   }
 }
 
-// Apply accent color + customer name to cobrand pill programmatically.
+// Set all brand color CSS custom properties on deckDoc.
+function applyBrandColors(answers) {
+  if (!state.deckDoc || !answers.accent_hex) return;
+  const root = state.deckDoc.documentElement;
+  const primary = answers.accent_hex;
+  const secondary = answers.secondary_hex || lightenHex(primary, 0.25);
+  const tertiary = answers.tertiary_hex || lightenHex(primary, 0.45);
+  // Primary: used as background on dark slides
+  root.style.setProperty('--accent', primary);
+  root.style.setProperty('--accent-fg', contrastColor(primary));
+  root.style.setProperty('--accent-bg-dark', darkenHex(primary, 0.3));
+  // Secondary: used for accents, badges, dots, card borders
+  root.style.setProperty('--accent-secondary', secondary);
+  root.style.setProperty('--accent-secondary-fg', contrastColor(secondary));
+  // Tertiary: used for stripes, lighter tints, subtle highlights
+  root.style.setProperty('--accent-l', tertiary);
+  root.style.setProperty('--accent-tertiary-fg', contrastColor(tertiary));
+}
+
+// Apply brand colors + customer name to cobrand pill programmatically.
 function applyAccentAndCobrand(answers) {
   if (!state.deckDoc) return;
-  if (answers.accent_hex) {
-    const root = state.deckDoc.documentElement;
-    root.style.setProperty('--accent', answers.accent_hex);
-    root.style.setProperty('--accent-l', lightenHex(answers.accent_hex, 0.25));
-    root.style.setProperty('--accent-fg', contrastColor(answers.accent_hex));
-    root.style.setProperty('--accent-bg-dark', darkenHex(answers.accent_hex, 0.3));
-  }
+  applyBrandColors(answers);
   if (answers.customer) {
     const pillSpan = state.deckDoc.querySelector('.cobrand-pill span');
     if (pillSpan) pillSpan.textContent = answers.customer;
@@ -403,17 +416,12 @@ async function handleProgressiveUpdate(questionId, answers) {
   // Immediate updates (no AI call)
   if (mapping.immediate) {
     if (mapping.action === 'accent' && answers.accent_hex) {
-      const hex = answers.accent_hex;
-      const root = state.deckDoc.documentElement;
-      root.style.setProperty('--accent', hex);
-      root.style.setProperty('--accent-l', lightenHex(hex, 0.25));
-      root.style.setProperty('--accent-fg', contrastColor(hex));
-      root.style.setProperty('--accent-bg-dark', darkenHex(hex, 0.3));
+      applyBrandColors(answers);
       // Instant visual feedback: tint the cobrand pill border + active dot
       const pill = state.deckDoc.querySelector('.cobrand-pill');
-      if (pill) pill.style.borderBottom = `3px solid ${hex}`;
+      if (pill) pill.style.borderBottom = `3px solid ${answers.accent_hex}`;
       const activeDot = state.deckDoc.querySelector('.dot.active');
-      if (activeDot) activeDot.style.background = hex;
+      if (activeDot) activeDot.style.background = answers.secondary_hex || answers.accent_hex;
       rerenderPreview();
     }
     if (mapping.action === 'deck-layout' && answers.deck_type) {

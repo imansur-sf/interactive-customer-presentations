@@ -334,7 +334,15 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
           },
         };
       } else if (f.type === 'hex') {
-        valueProps[k] = { type: 'string', description: `A hex color code (e.g. #DA1710) for: ${f.label || k}. Look up the customer's brand color from their website or public branding. Return a 6-digit hex code with # prefix.` };
+        const colorRole = (f.label || k).toLowerCase();
+        const hint = colorRole.includes('primary')
+          ? 'This is the PRIMARY brand color used as background on dark slides. Look up the customer\'s dominant brand color from their website, logo, or public branding.'
+          : colorRole.includes('secondary')
+          ? 'This is the SECONDARY brand color used for accents, highlights, and UI elements. Pick a complementary color from the customer\'s brand palette.'
+          : colorRole.includes('tertiary')
+          ? 'This is an optional TERTIARY brand color. Pick a supporting color from the brand palette, or a lighter/accent shade that complements the primary and secondary.'
+          : 'Look up the customer\'s brand color from their website or public branding.';
+        valueProps[k] = { type: 'string', description: `A hex color code (e.g. #DA1710) for: ${f.label || k}. ${hint} Return a 6-digit hex code with # prefix.` };
       } else {
         // text, textarea, radio — all return strings
         let desc = `Value for: ${f.label || k}`;
@@ -469,6 +477,8 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
     ].join('\n');
   } else if (turn === 'generate') {
     const accentHex = deckContext?.answers?.accent_hex || '#DA1710';
+    const secondaryHex = deckContext?.answers?.secondary_hex || '';
+    const tertiaryHex = deckContext?.answers?.tertiary_hex || '';
     const customerName = deckContext?.answers?.customer || 'Customer';
     const customerUrl = deckContext?.answers?.customer_url || '';
     const logoUrl = deckContext?.logoUrl || '';
@@ -492,7 +502,7 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
       contextBlock,
       '',
       'MANDATORY FIRST PATCHES (apply these BEFORE any slide content):',
-      `1. ACCENT COLOR: The customer chose ${accentHex}. You MUST emit a "meta" patch: slide_id:"meta", op:"set-style", selector:":root::style(--accent)", new_html:"${accentHex}". Also emit a second meta patch for --accent-l with a 20% lighter variant of the same hue.`,
+      `1. BRAND COLORS: Primary=${accentHex}${secondaryHex ? `, Secondary=${secondaryHex}` : ''}${tertiaryHex ? `, Tertiary=${tertiaryHex}` : ''}. You MUST emit a "meta" patch: slide_id:"meta", op:"set-style", selector:":root::style(--accent)", new_html:"${accentHex}".${secondaryHex ? ` Also emit meta patches for --accent-secondary:"${secondaryHex}".` : ''}${tertiaryHex ? ` Also emit a meta patch for --accent-l:"${tertiaryHex}".` : ' Also emit a meta patch for --accent-l with a lighter variant of the primary.'}`,
       `2. COBRAND PILL: Replace the text "SF Composer" inside .cobrand-pill <span> with "${customerName}".${cobrandExtra}`,
       '',
       'THEN generate patches for ALL slides with fully personalized content:',
@@ -509,14 +519,25 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
       '- Next Steps: 3-step CTA from closing_step_1, closing_step_2, closing_step_3.',
       '- Thank You: keep Salesforce branding, add customer name. Keep the "Built on: Gemini AI / Heroku" card and SaaSy Solutions credits.',
       '',
-      'COLOR RULES — ACCENT AS PRIMARY BACKGROUND:',
-      `- The customer's accent color (${accentHex}) should be used as the PRIMARY BACKGROUND on key slides:`,
-      '  * Hero slide: replace --grad-evening with a gradient from var(--accent-bg-dark) to var(--accent). Text color: var(--accent-fg).',
+      'COLOR RULES — THREE-COLOR BRAND PALETTE:',
+      `- PRIMARY (${accentHex}) = var(--accent): the DOMINANT background color on dark/hero slides.`,
+      `- SECONDARY (${secondaryHex || 'auto-derived'}) = var(--accent-secondary): used for accents, badges, dots, card borders, eyebrow text, and interactive elements.`,
+      `- TERTIARY (${tertiaryHex || 'auto-derived'}) = var(--accent-l): used for accent stripes, lighter tints, and subtle highlights.`,
+      '',
+      '  BACKGROUND USAGE:',
+      '  * Hero slide: replace --grad-evening with a gradient from var(--accent-bg-dark) to var(--accent). Text: var(--accent-fg).',
       '  * Dark slides (Why Now, Proof/What It Does Today, Closing/Next Steps, Thank You): use var(--accent) as solid background. Text: var(--accent-fg).',
-      '  * The 3px accent stripe at top/bottom of these slides should use var(--accent-l) (lighter tint).',
-      '- Light slides (Gap, Stack, Beachheads, Scale, Roadmap): keep white/light backgrounds. Use var(--accent) for badges, dots, card accent borders.',
-      '- Use var(--accent-fg) for ALL text on accent-colored backgrounds (it auto-adjusts to white or dark based on contrast).',
-      '- Salesforce primary blues (#001E5B, #022AC0, #066AFE, #00B3FF) should still appear on light slides for labels, eyebrows, and secondary text.',
+      '  * The 3px accent stripe at top/bottom of dark slides: use var(--accent-l) (tertiary color).',
+      '',
+      '  ACCENT USAGE ON LIGHT SLIDES:',
+      '  * Light slides (Gap, Stack, Beachheads, Scale, Roadmap): keep white/light backgrounds.',
+      '  * Use var(--accent-secondary) for badges, dots, card accent borders, and eyebrow labels.',
+      '  * Use var(--accent) sparingly on light slides (e.g. section dividers, bold callouts).',
+      '',
+      '  TEXT CONTRAST:',
+      '- Use var(--accent-fg) for ALL text on primary-colored backgrounds (auto-adjusts white or dark).',
+      '- Use var(--accent-secondary-fg) for text on secondary-colored elements.',
+      '- Salesforce blues (#001E5B, #022AC0) can still appear on light slides for secondary text.',
       '',
       'COPY RULES:',
       '- ALL copy must be specific to the customer name, industry, and use cases. No generic placeholders.',
