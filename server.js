@@ -577,7 +577,7 @@ const UNSUPPORTED_SCHEMA_KEYS = new Set([
   'oneOf', 'anyOf', 'allOf', 'not', 'if', 'then', 'else',
   'patternProperties', 'unevaluatedProperties', 'unevaluatedItems',
   'contentMediaType', 'contentEncoding', 'definitions', '$defs',
-  '$ref', '$id', '$comment', 'title', 'readOnly', 'writeOnly',
+  '$ref', '$id', '$comment', 'readOnly', 'writeOnly',
   'deprecated', 'externalDocs', 'xml', 'discriminator',
   'minProperties', 'maxProperties', 'minItems', 'maxItems',
   'uniqueItems', 'minLength', 'maxLength', 'pattern',
