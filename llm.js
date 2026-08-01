@@ -176,14 +176,65 @@ async function buildSystemText() {
 
 function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, questionSchema }) {
   if (turn === 'suggest') {
+    // Build explicit properties for the values object from the question's fields.
+    // Gemini's function-calling API does NOT support additionalProperties, so we
+    // must enumerate every field key the model should populate.
+    const valueProps = {};
+    const valueRequired = [];
+    for (const f of (questionSchema?.fields || [])) {
+      const k = f.key;
+      if (f.type === 'multiselect') {
+        valueProps[k] = { type: 'array', items: { type: 'string' }, description: `Selected options for: ${f.label || k}` };
+      } else if (f.type === 'kpi-grid') {
+        valueProps[k] = {
+          type: 'array',
+          description: 'Array of 4 KPI objects',
+          items: {
+            type: 'object',
+            required: ['value', 'unit', 'label', 'framing'],
+            properties: {
+              value: { type: 'string', description: 'Numeric value as a string' },
+              unit: { type: 'string', description: 'Unit like %, x, hrs, etc.' },
+              label: { type: 'string', description: 'Short label, max 10 words' },
+              framing: { type: 'string', enum: ['Reduce', 'Improve'], description: 'Reduce for cost/time saved, Improve for outcome gained' },
+            },
+          },
+        };
+      } else if (f.type === 'beachheads') {
+        valueProps[k] = {
+          type: 'array',
+          description: 'Array of 2 beachhead objects',
+          items: {
+            type: 'object',
+            required: ['title', 'before', 'after', 'ttv'],
+            properties: {
+              title: { type: 'string', description: 'Beachhead title, max 6 words' },
+              before: { type: 'string', description: 'Current state, max 15 words' },
+              after: { type: 'string', description: 'Future state, max 15 words' },
+              ttv: { type: 'string', description: 'Time to value, e.g. 4 weeks' },
+            },
+          },
+        };
+      } else {
+        // text, textarea, radio, hex — all return strings
+        let desc = `Value for: ${f.label || k}`;
+        if (f.type === 'radio' && f.options) {
+          desc += `. Choose one of: ${f.options.join(', ')}`;
+        }
+        valueProps[k] = { type: 'string', description: desc };
+      }
+      if (f.required) valueRequired.push(k);
+    }
+
     const suggestSchema = {
       type: 'object',
       required: ['values', 'rationale'],
       properties: {
         values: {
           type: 'object',
-          description: 'Field key → value map. For radio: one of the options (or a free-form string if none fit). For multiselect: array of strings. For text/textarea: a string. For kpi-grid: array of {value, unit, label, framing}. For beachheads: array of {title, before, after, ttv}. Keys must match the field keys in the incoming questionSchema.',
-          additionalProperties: true,
+          description: 'Concrete values for each field. You MUST populate every key listed here.',
+          required: valueRequired.length ? valueRequired : undefined,
+          properties: valueProps,
         },
         rationale: { type: 'string', description: 'One-sentence explanation of the suggestion, shown to the user in the chat.' },
       },
