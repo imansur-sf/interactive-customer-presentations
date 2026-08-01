@@ -23,8 +23,8 @@ const LS = {
   sessionId: 'icp.sessionId',
 };
 
-// Label overrides applied by index — recalculated after reorder
-let SLIDE_LABEL_OVERRIDES = { 0: 'Hero' };
+// Label overrides applied by index — recalculated after deck-type reorder
+let SLIDE_LABEL_OVERRIDES = { 0: 'Hero', 11: 'Thank You' };
 
 const state = {
   deckDoc: null,
@@ -393,6 +393,7 @@ const PROGRESSIVE_MAP = {
   'roadmap': { slides: ['roadmap'] },
   'closing': { slides: ['closing'] },
   'accent': { immediate: true, action: 'accent' },
+  'deck-type': { immediate: true, action: 'deck-layout' },
 };
 
 async function handleProgressiveUpdate(questionId, answers) {
@@ -402,11 +403,21 @@ async function handleProgressiveUpdate(questionId, answers) {
   // Immediate updates (no AI call)
   if (mapping.immediate) {
     if (mapping.action === 'accent' && answers.accent_hex) {
+      const hex = answers.accent_hex;
       const root = state.deckDoc.documentElement;
-      root.style.setProperty('--accent', answers.accent_hex);
-      root.style.setProperty('--accent-l', lightenHex(answers.accent_hex, 0.25));
-      root.style.setProperty('--accent-fg', contrastColor(answers.accent_hex));
-      root.style.setProperty('--accent-bg-dark', darkenHex(answers.accent_hex, 0.3));
+      root.style.setProperty('--accent', hex);
+      root.style.setProperty('--accent-l', lightenHex(hex, 0.25));
+      root.style.setProperty('--accent-fg', contrastColor(hex));
+      root.style.setProperty('--accent-bg-dark', darkenHex(hex, 0.3));
+      // Instant visual feedback: tint the cobrand pill border + active dot
+      const pill = state.deckDoc.querySelector('.cobrand-pill');
+      if (pill) pill.style.borderBottom = `3px solid ${hex}`;
+      const activeDot = state.deckDoc.querySelector('.dot.active');
+      if (activeDot) activeDot.style.background = hex;
+      rerenderPreview();
+    }
+    if (mapping.action === 'deck-layout' && answers.deck_type) {
+      applyDeckTypeLayout(answers.deck_type);
       rerenderPreview();
     }
     if (mapping.action === 'cobrand') {
