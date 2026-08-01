@@ -511,6 +511,7 @@ async function sendScopedEdit(text) {
     });
 
     const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
+    detectAndApplyDeckTypeChange(text);
     rerenderPreview();
     appendMessage('assistant', resp.message || `Applied ${applied.length} change${applied.length === 1 ? '' : 's'}.`);
     if (skipped.length) console.warn('skipped patches', skipped);
@@ -539,6 +540,7 @@ async function sendFreeformMessage(text) {
     });
 
     const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
+    detectAndApplyDeckTypeChange(text);
     rerenderPreview();
     appendMessage('assistant', resp.message || `Applied ${applied.length} change${applied.length === 1 ? '' : 's'}.`);
     if (skipped.length) console.warn('skipped patches', skipped);
@@ -547,6 +549,51 @@ async function sendFreeformMessage(text) {
     appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
   } finally {
     setBusy(false);
+  }
+}
+
+// ------------------------------------------------------------------ Deck-wide edit (post-generation, no slide scoped)
+async function sendDeckWideEdit(text) {
+  appendMessage('user', text);
+  setBusy(true, 'Working on your request…');
+  try {
+    const resp = await callLLM({
+      turn: 'freeform',
+      userMessage: text,
+      deckContext: {
+        answers: state.answers || {},
+        meetingNotes: state.meetingNotes || '',
+        slides: state.slides.map((s) => ({ idx: s.idx, label: s.label, section: s.dataSection })),
+      },
+      model: 'sonnet',
+    });
+
+    const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
+    detectAndApplyDeckTypeChange(text);
+    rerenderPreview();
+    appendMessage('assistant', resp.message || `Applied ${applied.length} change${applied.length === 1 ? '' : 's'}.`);
+    if (skipped.length) console.warn('skipped patches', skipped);
+  } catch (err) {
+    console.error(err);
+    appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
+  } finally {
+    setBusy(false);
+  }
+}
+
+// Detect deck-type keywords in user message and apply layout reorder
+function detectAndApplyDeckTypeChange(text) {
+  let newType = null;
+  if (/\bpov\b|point\s*of\s*view/i.test(text)) {
+    newType = 'POV (Point of View)';
+  } else if (/\bproposal\b|business\s*case/i.test(text)) {
+    newType = 'Proposal / Business Case';
+  } else if (/tell[\s-]*show[\s-]*tell/i.test(text)) {
+    newType = 'Tell-Show-Tell';
+  }
+  if (newType && state.answers) {
+    state.answers.deck_type = newType;
+    applyDeckTypeLayout(newType);
   }
 }
 
@@ -638,9 +685,12 @@ function sendMessage() {
     sendScopedEdit(text);
   } else if (state.interviewActive) {
     sendFreeformMessage(text);
+  } else if (state.answers) {
+    // Post-generation: allow deck-wide edits without scoping a slide
+    sendDeckWideEdit(text);
   } else {
     appendMessage('user', text);
-    appendMessage('assistant', 'Click a slide on the right first, then I can apply the edit there. Or click Start interview to build a deck from scratch.');
+    appendMessage('assistant', 'Click a slide on the right first, or click Start interview to build a deck from scratch.');
   }
 }
 
