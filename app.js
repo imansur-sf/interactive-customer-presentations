@@ -341,11 +341,10 @@ function applyDeckTypeLayout(deckType) {
 
   // Build a map: kebab-id → DOM element
   const kebabToEl = {};
-  allSlideEls.forEach((el, i) => {
+  allSlideEls.forEach((el) => {
     const ds = el.getAttribute('data-section') || '';
-    // Reuse the same label → kebab logic as kebabForSlide
-    const label = (i === 0 ? 'Hero' : ds) || `Slide ${i + 1}`;
-    const kebab = labelToKebab(label);
+    if (!ds) return; // skip slides without a data-section
+    const kebab = labelToKebab(ds);
     kebabToEl[kebab] = el;
   });
 
@@ -365,9 +364,8 @@ function applyDeckTypeLayout(deckType) {
   // Hide unused slides (move them to end, hidden)
   allSlideEls.forEach(el => {
     const ds = el.getAttribute('data-section') || '';
-    const i = allSlideEls.indexOf(el);
-    const label = (i === 0 ? 'Hero' : ds) || `Slide ${i + 1}`;
-    const kebab = labelToKebab(label);
+    if (!ds) return; // skip slides without a data-section
+    const kebab = labelToKebab(ds);
     if (!activeOrder.includes(kebab)) {
       el.style.display = 'none';
       container.appendChild(el);
@@ -384,6 +382,9 @@ function applyDeckTypeLayout(deckType) {
   // Re-enumerate visible slides + re-render nav
   enumerateSlides();
   renderNav();
+
+  // Refresh the iframe so its internal counter/dots match the new visible set
+  rerenderPreview();
 }
 
 // Convert a slide label to kebab-case id (mirrors kebabForSlide map)

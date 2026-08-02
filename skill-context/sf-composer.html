@@ -839,32 +839,62 @@
   </div>
 
   <script>
-    const slides = document.querySelectorAll('.slide');
     const dotsEl = document.getElementById('dots');
     const counterEl = document.getElementById('counter');
     const prevBtn = document.getElementById('prev');
     const nextBtn = document.getElementById('next');
     const sectionLabel = document.getElementById('section-label');
+    let visibleSlides = [];
     let current = 0;
 
-    slides.forEach((_, i) => {
-      const d = document.createElement('div');
-      d.className = 'dot' + (i === 0 ? ' active' : '');
-      d.addEventListener('click', () => go(i));
-      dotsEl.appendChild(d);
-    });
+    // Collect only visible (not display:none) slides
+    function getVisibleSlides() {
+      return Array.from(document.querySelectorAll('.slide')).filter(
+        el => el.style.display !== 'none'
+      );
+    }
+
+    // Rebuild dots and counter for the current set of visible slides
+    function refreshSlideNav() {
+      // Remove active class from old current if still valid
+      if (visibleSlides[current]) visibleSlides[current].classList.remove('active');
+      visibleSlides = getVisibleSlides();
+      if (visibleSlides.length === 0) return;
+
+      // Reset to slide 0
+      current = 0;
+
+      // Rebuild dots
+      dotsEl.innerHTML = '';
+      visibleSlides.forEach((_, i) => {
+        const d = document.createElement('div');
+        d.className = 'dot' + (i === 0 ? ' active' : '');
+        d.addEventListener('click', () => go(i));
+        dotsEl.appendChild(d);
+      });
+
+      // Activate first slide
+      visibleSlides.forEach(s => s.classList.remove('active'));
+      visibleSlides[0].classList.add('active');
+      counterEl.textContent = `1 / ${visibleSlides.length}`;
+      sectionLabel.textContent = visibleSlides[0].dataset.section || '';
+      prevBtn.disabled = true;
+      nextBtn.disabled = visibleSlides.length <= 1;
+    }
 
     function go(n) {
-      slides[current].classList.remove('active');
-      document.querySelectorAll('.dot')[current].classList.remove('active');
-      current = Math.max(0, Math.min(n, slides.length - 1));
-      slides[current].classList.add('active');
-      slides[current].scrollTop = 0;
-      document.querySelectorAll('.dot')[current].classList.add('active');
-      counterEl.textContent = `${current + 1} / ${slides.length}`;
-      sectionLabel.textContent = slides[current].dataset.section || '';
+      if (visibleSlides.length === 0) return;
+      visibleSlides[current].classList.remove('active');
+      const dots = dotsEl.querySelectorAll('.dot');
+      if (dots[current]) dots[current].classList.remove('active');
+      current = Math.max(0, Math.min(n, visibleSlides.length - 1));
+      visibleSlides[current].classList.add('active');
+      visibleSlides[current].scrollTop = 0;
+      if (dots[current]) dots[current].classList.add('active');
+      counterEl.textContent = `${current + 1} / ${visibleSlides.length}`;
+      sectionLabel.textContent = visibleSlides[current].dataset.section || '';
       prevBtn.disabled = current === 0;
-      nextBtn.disabled = current === slides.length - 1;
+      nextBtn.disabled = current === visibleSlides.length - 1;
     }
 
     prevBtn.addEventListener('click', () => go(current - 1));
@@ -875,7 +905,13 @@
       if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   go(current - 1);
     });
 
-    go(0);
+    // Listen for parent app telling us to refresh after layout change
+    window.addEventListener('message', e => {
+      if (e.data === 'refreshSlideNav') refreshSlideNav();
+    });
+
+    // Initial setup
+    refreshSlideNav();
   </script>
   <script src="animation.js"></script>
   <script>

@@ -668,7 +668,7 @@ export function applyPatches(deckDoc, patches) {
 
 function sectionForSlideId(deckDoc, slideId) {
   const map = {
-    'hero':        '',
+    'hero':        'Hero',
     'why-now':     'Why Now',
     'gap':         'The Gap',
     'stack':       'How It Works',
@@ -679,7 +679,7 @@ function sectionForSlideId(deckDoc, slideId) {
     'proof':       'What It Does Today',
     'roadmap':     'The Path Forward',
     'closing':     'Next Steps',
-    'attribution': '',
+    'thank-you':   'Thank You',
   };
   return map[slideId] ?? slideId;
 }
