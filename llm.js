@@ -458,13 +458,44 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
 
   let userPrompt;
   if (turn === 'freeform') {
+    // Build current-slide-HTML block so the AI can see what it's editing
+    const slideHtmlBlock = deckContext?.currentSlides?.length
+      ? [
+          '',
+          'CURRENT SLIDE HTML (this is what the referenced slide looks like RIGHT NOW — use this as your source of truth):',
+          ...deckContext.currentSlides.map(s =>
+            `--- ${s.label} ---\n\`\`\`html\n${s.html}\n\`\`\``
+          ),
+          '',
+          'CRITICAL PRESERVATION RULES:',
+          '• Make ONLY the changes the user explicitly requested.',
+          '• Do NOT modify any content, text, KPI values, numbers, quotes, or citations that the user did not mention.',
+          '• Do NOT change backgrounds, colors, or structure unless the user specifically asked for it.',
+          '• If the user asks to change text color, change ONLY the color style — keep all text content and backgrounds exactly as they are.',
+          '• If the user asks about a specific element (e.g. "the KPIs"), modify only that element.',
+          '• When in doubt, change LESS rather than MORE.',
+          '',
+        ].join('\n')
+      : '';
+
+    // Build conversation history block for multi-turn context
+    const historyBlock = deckContext?.chatHistory?.length
+      ? [
+          '',
+          'RECENT CONVERSATION (what was already discussed/attempted — use this to understand corrections):',
+          ...deckContext.chatHistory.map(m => `${m.role.toUpperCase()}: ${m.text}`),
+          '',
+        ].join('\n')
+      : '';
+
     userPrompt = [
-      'The user is making a free-form request outside the standard interview flow.',
+      'The user is making a free-form edit request.',
       `Their instruction: ${JSON.stringify(userMessage)}`,
       '',
       contextBlock,
-      '',
-      'Apply whatever changes the user requests as patches to the deck. This could be anything: creating new content, modifying existing slides, building architecture diagrams, rewriting copy, etc. Use your best judgment about which slide(s) to modify. If the request doesn\'t map to an existing slide, pick the most relevant one. Always return a helpful `message` explaining what you did.',
+      slideHtmlBlock,
+      historyBlock,
+      'Apply ONLY what the user asked for as patches. Do not make unrelated changes. Always return a helpful `message` explaining what you changed.',
     ].join('\n');
   } else if (turn === 'edit') {
     userPrompt = [

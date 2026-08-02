@@ -606,6 +606,8 @@ async function sendFreeformMessage(text) {
         answers: state.answers || {},
         meetingNotes: state.meetingNotes || '',
         slides: state.slides.map((s) => ({ idx: s.idx, label: s.label, section: s.dataSection })),
+        currentSlides: extractReferencedSlides(text),
+        chatHistory: getRecentChatHistory(5),
       },
       model: 'sonnet',
     });
@@ -637,6 +639,8 @@ async function sendDeckWideEdit(text) {
         answers: state.answers || {},
         meetingNotes: state.meetingNotes || '',
         slides: state.slides.map((s) => ({ idx: s.idx, label: s.label, section: s.dataSection })),
+        currentSlides: extractReferencedSlides(text),
+        chatHistory: getRecentChatHistory(5),
       },
       model: 'sonnet',
     });
@@ -651,6 +655,69 @@ async function sendDeckWideEdit(text) {
   } finally {
     setBusy(false);
   }
+}
+
+// ------------------------------------------------------------------ Slide reference detection
+// Parse user message to find which slide(s) they're referring to, then
+// pull the live HTML from the iframe so the AI can see the current state.
+function extractReferencedSlides(text) {
+  const results = [];
+  const inner = document.getElementById('preview-iframe')?.contentDocument;
+  if (!inner || !state.slides?.length) return results;
+
+  const seen = new Set();
+
+  // Match "slide N" references (1-based in user language)
+  const slideNumMatches = text.match(/slide\s*(\d+)/gi);
+  if (slideNumMatches) {
+    for (const m of slideNumMatches) {
+      const num = parseInt(m.replace(/\D/g, ''), 10) - 1; // convert to 0-based
+      const slide = state.slides[num];
+      if (slide && !seen.has(slide.id)) {
+        const el = inner.getElementById(slide.id);
+        results.push({ label: slide.label, html: el ? el.outerHTML : '' });
+        seen.add(slide.id);
+      }
+    }
+  }
+
+  // Match slide label names (e.g. "hero", "the gap", "why now")
+  const lower = text.toLowerCase();
+  for (const slide of state.slides) {
+    const labelLower = slide.label.toLowerCase();
+    if (lower.includes(labelLower) && !seen.has(slide.id)) {
+      const el = inner.getElementById(slide.id);
+      results.push({ label: slide.label, html: el ? el.outerHTML : '' });
+      seen.add(slide.id);
+    }
+  }
+
+  // Fallback: if no specific slide detected, include whichever slide is
+  // currently visible in the preview (the user is probably looking at it)
+  if (results.length === 0 && state.activeSlideIdx != null) {
+    const slide = state.slides[state.activeSlideIdx];
+    if (slide) {
+      const el = inner.getElementById(slide.id);
+      results.push({ label: slide.label, html: el ? el.outerHTML : '' });
+    }
+  }
+
+  return results;
+}
+
+// Collect the last N chat messages for multi-turn context
+function getRecentChatHistory(count = 5) {
+  const msgs = document.querySelectorAll('#chat-log .msg');
+  const recent = [];
+  const arr = Array.from(msgs).slice(-(count + 1), -1); // exclude the just-appended user msg
+  for (const m of arr) {
+    const labelEl = m.querySelector('.msg-label');
+    const role = labelEl?.textContent === 'You' ? 'user' : 'assistant';
+    // Strip the role label from the text
+    const text = m.textContent.replace(/^(You|Imran AI)\s*/, '').trim();
+    if (text) recent.push({ role, text });
+  }
+  return recent;
 }
 
 // Detect deck-type keywords in user message and apply layout reorder
