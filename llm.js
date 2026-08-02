@@ -556,7 +556,9 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
       '- Use var(--accent-secondary-fg) for text on secondary-colored elements.',
       '- Salesforce blues (#001E5B, #022AC0) can still appear on light slides for secondary text.',
       '',
+      '  HERO STRUCTURE: Do NOT replace the `.hero`, `.hero-inner`, or `.hero-kpi` containers. Use narrow selectors to update children: `.hero h1`, `.hero-sub`, `.hero-quote p`, `.hero-quote cite`, `.hero-eyebrow`, `.hkc-val`, `.hkc-label`.',
       '  HERO KPI CARDS: The .hero-kpi-card elements sit on dark backgrounds. Do NOT add inline color styles to .hkc-val or .hkc-label — the CSS defaults are white text. Only modify the text CONTENT (value, unit, label), never the color styling.',
+      '  COBRAND PILL: Do NOT touch the `.cobrand-pill` element — it is managed programmatically.',
       '',
       'COPY RULES:',
       '- ALL copy must be specific to the customer name, industry, and use cases. No generic placeholders.',
@@ -631,10 +633,12 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
       'Do NOT touch other slides. Keep patches minimal and focused.',
       '',
       'CRITICAL RULES FOR PROGRESSIVE UPDATES:',
+      '- HERO STRUCTURE: Do NOT replace `.hero`, `.hero-inner`, or `.hero-kpi` containers. Use narrow selectors to update individual children: `.hero h1`, `.hero-sub`, `.hero-quote p`, `.hero-quote cite`, `.hero-eyebrow`.',
       '- HERO KPI CARDS: Do NOT replace `.hero-kpi` or `.hero-kpi-card` elements. Only update text inside `.hkc-val` and `.hkc-label` elements using narrow selectors like `.hero-kpi-card:nth-child(N) .hkc-val`.',
       '- Do NOT add inline color styles to `.hkc-val` or `.hkc-label` — the CSS handles white text on dark backgrounds. Never set color to accent/orange on KPI cards.',
       '- Do NOT restructure the `.hero-kpi` container — keep the existing card layout intact.',
       '- Do NOT replace entire slide-level containers or change overall slide structure.',
+      '- COBRAND PILL: Do NOT touch the `.cobrand-pill` element — it is managed programmatically.',
     ].join('\n');
   } else if (turn === 'finalize') {
     userPrompt = [
@@ -714,6 +718,19 @@ export function applyPatches(deckDoc, patches) {
       // Don't allow AI to replace the hero KPI container or individual cards (protects layout)
       if (op === 'replace' && (target.classList?.contains('hero-kpi') || target.classList?.contains('hero-kpi-card'))) {
         skipped.push({ patch: p, reason: 'kpi_layout_protected' });
+        continue;
+      }
+
+      // Don't allow AI to replace hero structural containers (protects H1, KPIs, layout)
+      // AI should patch children (h1, .hero-sub, .hero-quote, etc.) not the wrapper.
+      if (op === 'replace' && (target.classList?.contains('hero') || target.classList?.contains('hero-inner'))) {
+        skipped.push({ patch: p, reason: 'hero_structure_protected' });
+        continue;
+      }
+
+      // Protect cobrand pill from AI replacement (managed programmatically)
+      if (op === 'replace' && target.classList?.contains('cobrand-pill')) {
+        skipped.push({ patch: p, reason: 'cobrand_protected' });
         continue;
       }
 
