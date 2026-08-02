@@ -121,6 +121,7 @@ function renderNav() {
 function mountPreview() {
   const iframe = document.getElementById('preview-iframe');
   const empty = document.getElementById('preview-empty');
+  if (!state.deckDoc?.documentElement) return;
   const html = '<!DOCTYPE html>\n' + state.deckDoc.documentElement.outerHTML;
   iframe.srcdoc = html;
   iframe.style.display = 'block';
@@ -131,6 +132,7 @@ function mountPreview() {
 // Preserves the current active slide index if possible.
 function rerenderPreview() {
   const iframe = document.getElementById('preview-iframe');
+  if (!state.deckDoc?.documentElement) return;
   const html = '<!DOCTYPE html>\n' + state.deckDoc.documentElement.outerHTML;
 
   // We restore the active slide once the iframe reloads.
@@ -222,7 +224,7 @@ async function generateDeck(answers) {
   setBusy(true, 'Generating deck…');
   try {
     // Force-apply accent color + cobrand BEFORE AI call (instant visual feedback)
-    applyAccentAndCobrand(answers);
+    try { applyAccentAndCobrand(answers); } catch (e) { console.warn('pre-brand failed', e); }
     rerenderPreview();
 
     const resp = await callLLM({
@@ -244,7 +246,7 @@ async function generateDeck(answers) {
     applyDeckTypeLayout(answers.deck_type, expandedOrder);
 
     // Force-apply accent + cobrand again AFTER patches (safety net)
-    applyAccentAndCobrand(answers);
+    try { applyAccentAndCobrand(answers); } catch (e) { console.warn('post-brand failed', e); }
     rerenderPreview();
 
     let note = resp.message || `Deck generated. ${applied.length} patches applied.`;
@@ -268,6 +270,12 @@ async function generateDeck(answers) {
     console.error(err);
     appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
   } finally {
+    // Always rebuild the slide nav so the TOC stays current even after errors
+    try {
+      enumerateSlides();
+      renderNav();
+      rerenderPreview();
+    } catch (_) { /* non-fatal */ }
     setBusy(false);
   }
 }
@@ -296,7 +304,7 @@ async function regenerateForDeckType(answers) {
     const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
 
     // Safety net: re-apply brand colors after AI patches
-    applyAccentAndCobrand(answers);
+    try { applyAccentAndCobrand(answers); } catch (e) { console.warn('retype brand failed', e); }
     rerenderPreview();
 
     let note = resp.message || `Deck adapted for ${deckType}. ${applied.length} patches applied.`;
@@ -315,6 +323,7 @@ async function regenerateForDeckType(answers) {
 function applyBrandColors(answers) {
   if (!state.deckDoc || !answers.accent_hex) return;
   const root = state.deckDoc.documentElement;
+  if (!root) return; // guard against corrupted deckDoc
   const primary = answers.accent_hex;
   const secondary = answers.secondary_hex || lightenHex(primary, 0.25);
   const tertiary = answers.tertiary_hex || lightenHex(primary, 0.45);

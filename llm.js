@@ -698,6 +698,13 @@ export function applyPatches(deckDoc, patches) {
         continue;
       }
 
+      // Don't allow AI to replace critical document-level elements
+      const tagUpper = (target.tagName || '').toUpperCase();
+      if (op === 'replace' && (tagUpper === 'HTML' || tagUpper === 'HEAD' || tagUpper === 'BODY')) {
+        skipped.push({ patch: p, reason: 'root_element_protected' });
+        continue;
+      }
+
       if (op === 'replace') {
         const tpl = deckDoc.createElement('template');
         tpl.innerHTML = String(p.new_html || '');
