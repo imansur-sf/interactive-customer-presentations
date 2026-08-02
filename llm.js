@@ -556,6 +556,8 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
       '- Use var(--accent-secondary-fg) for text on secondary-colored elements.',
       '- Salesforce blues (#001E5B, #022AC0) can still appear on light slides for secondary text.',
       '',
+      '  HERO KPI CARDS: The .hero-kpi-card elements sit on dark backgrounds. Do NOT add inline color styles to .hkc-val or .hkc-label — the CSS defaults are white text. Only modify the text CONTENT (value, unit, label), never the color styling.',
+      '',
       'COPY RULES:',
       '- ALL copy must be specific to the customer name, industry, and use cases. No generic placeholders.',
       '- Enforce every copy-length cap from STYLE-GUIDE.md (≤6-word bc-titles, ≤15-word before/after, etc.).',
@@ -596,6 +598,23 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
         '```',
         genNotes.slice(0, 8000),
         '```',
+      );
+    }
+
+    // Inject animated slides instructions if any were selected
+    const animSelections = deckContext?.answers?.animations || [];
+    if (animSelections.length) {
+      generateLines.push(
+        '',
+        'ANIMATED SLIDES SELECTED BY THE USER:',
+        `Selections: ${animSelections.join(', ')}`,
+        '',
+        '- If "AI in Action" is selected: personalize the AI in Action slide with the customer\'s primary use case, showing a typewriter chat simulation and journey stream. Make the chat messages specific to the customer\'s workflow.',
+        '- If "Data Pipeline" is selected: personalize the Real-Time Data slide showing how the customer\'s data flows through Data Cloud. Use their actual systems and data sources.',
+        '- If "Architecture Diagram" is selected: personalize the How It Works slide as a layered architecture diagram showing the customer\'s actual systems connected through Salesforce with Data Cloud as the central hub. Show current-state systems at the edges and Salesforce products in the middle, with data flows between them.',
+        '- If "CountUp Hero KPIs" is selected: ensure hero KPI values are clean integers or numbers (no text prefixes) so the countUp animation can animate them from 0 to the target value.',
+        '',
+        'For the animated slides, ensure the content is SPECIFIC to the customer — use their actual systems, products, industry data, and use cases. Generic placeholder content defeats the purpose of these slides.',
       );
     }
 
@@ -671,6 +690,12 @@ export function applyPatches(deckDoc, patches) {
           skipped.push({ patch: p, reason: 'css_leak_blocked' });
           continue;
         }
+      }
+
+      // Don't allow AI to replace entire .slide elements (protects data-section attributes)
+      if (op === 'replace' && target.classList?.contains('slide')) {
+        skipped.push({ patch: p, reason: 'slide_element_protected' });
+        continue;
       }
 
       if (op === 'replace') {

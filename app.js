@@ -37,6 +37,7 @@ const state = {
   busy: false,
   scrapedLogo: null, // logo URL scraped from customer website
   meetingNotes: '',   // optional meeting notes / context from user
+  activeSlideOrder: null, // current slide order (may be expanded by animations)
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -238,8 +239,9 @@ async function generateDeck(answers) {
 
     const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
 
-    // Reorder + hide slides based on deck type
-    applyDeckTypeLayout(answers.deck_type);
+    // Reorder + hide slides based on deck type (expand for animations if selected)
+    const expandedOrder = buildExpandedSlideOrder(answers);
+    applyDeckTypeLayout(answers.deck_type, expandedOrder);
 
     // Force-apply accent + cobrand again AFTER patches (safety net)
     applyAccentAndCobrand(answers);
@@ -336,6 +338,18 @@ function applyBrandColors(answers) {
   // Tertiary: used for stripes, lighter tints, subtle highlights
   root.style.setProperty('--accent-l', tertiary);
   root.style.setProperty('--accent-tertiary-fg', contrastColor(tertiary));
+
+  // Enforce white text on hero KPI cards (AI sometimes overrides with dark inline colors)
+  state.deckDoc.querySelectorAll('.hkc-val').forEach(el => {
+    el.style.color = '#fff';
+  });
+  state.deckDoc.querySelectorAll('.hkc-label').forEach(el => {
+    el.style.color = 'rgba(255,255,255,0.5)';
+  });
+  // Keep accent blue on .hkc-val > span (the unit/symbol)
+  state.deckDoc.querySelectorAll('.hkc-val span').forEach(el => {
+    el.style.color = 'var(--sf-blue-l)';
+  });
 }
 
 // Apply brand colors + customer name to cobrand pill programmatically.
@@ -370,11 +384,42 @@ function applyAccentAndCobrand(answers) {
   }
 }
 
+// ------------------------------------------------------------------ Animated slide expansion
+// Build an expanded slide order that includes animation-selected slides not in the base config.
+const ANIM_KEBAB_MAP = {
+  'AI in Action (typewriter chat + journey stream)': 'ai-in-action',
+  'Data Pipeline (nodes + flowing packets + countUp)': 'real-time',
+  'Architecture Diagram (sequential reveal + traveling packets)': 'stack',
+  'CountUp Hero KPIs (recommended for all decks)': 'hero',
+};
+
+function buildExpandedSlideOrder(answers) {
+  const deckType = answers.deck_type || 'Tell-Show-Tell';
+  const config = DECK_TYPE_CONFIG[deckType] || DECK_TYPE_CONFIG['Tell-Show-Tell'];
+  const baseOrder = [...config.slideOrder];
+  const anims = answers.animations || [];
+  if (!anims.length) return null; // no expansion needed
+
+  const selected = anims.map(a => ANIM_KEBAB_MAP[a]).filter(Boolean);
+  let insertIdx = baseOrder.indexOf('stack');
+  if (insertIdx < 0) insertIdx = baseOrder.length - 2;
+
+  for (const kebab of selected) {
+    if (kebab === 'hero') continue; // hero countup is just an animation flag, not a new slide
+    if (!baseOrder.includes(kebab)) {
+      insertIdx++;
+      baseOrder.splice(insertIdx, 0, kebab);
+    }
+  }
+  return baseOrder;
+}
+
 // ------------------------------------------------------------------ Deck type layout
 // Reorder slides in deckDoc to match the deck type's slideOrder, hide unused.
-function applyDeckTypeLayout(deckType) {
+function applyDeckTypeLayout(deckType, overrideOrder) {
   const config = DECK_TYPE_CONFIG[deckType] || DECK_TYPE_CONFIG['Tell-Show-Tell'];
-  const activeOrder = config.slideOrder; // e.g. ['hero','gap','why-now',...]
+  const activeOrder = overrideOrder || config.slideOrder; // e.g. ['hero','gap','why-now',...]
+  state.activeSlideOrder = activeOrder; // persist for re-enforcement after progressive patches
   const allSlideEls = Array.from(state.deckDoc.querySelectorAll('.slide'));
 
   // Build a map: kebab-id → DOM element
@@ -467,6 +512,7 @@ const PROGRESSIVE_MAP = {
   'closing': { slides: ['closing'] },
   'accent': { immediate: true, action: 'accent' },
   'deck-type': { immediate: true, action: 'deck-layout' },
+  'animations': { immediate: true, action: 'animated-slides' },
 };
 
 async function handleProgressiveUpdate(questionId, answers) {
@@ -504,6 +550,16 @@ async function handleProgressiveUpdate(questionId, answers) {
       // Kick off background logo scrape
       if (answers.customer_url) scrapeLogoBackground(answers.customer_url);
     }
+    if (mapping.action === 'animated-slides' && answers.animations?.length) {
+      const deckType = answers.deck_type || 'Tell-Show-Tell';
+      const expandedOrder = buildExpandedSlideOrder(answers);
+      applyDeckTypeLayout(deckType, expandedOrder);
+      const selected = answers.animations.map(a => ANIM_KEBAB_MAP[a]).filter(Boolean);
+      const newSlides = selected.filter(k => k !== 'hero').length;
+      if (newSlides > 0) {
+        appendMessage('assistant', `Added ${newSlides} animated slide(s) to the deck.`);
+      }
+    }
     return;
   }
 
@@ -522,7 +578,26 @@ async function handleProgressiveUpdate(questionId, answers) {
       model: 'haiku', // fast tier for quick incremental updates
     });
     const { applied } = applyPatches(state.deckDoc, resp.patches || []);
-    if (applied.length) rerenderPreview();
+    if (applied.length) {
+      // Re-enforce deck-type visibility after AI patches
+      // (prevents excluded slides from becoming visible or changing count)
+      const deckType = answers.deck_type;
+      if (deckType) {
+        const config = DECK_TYPE_CONFIG[deckType] || DECK_TYPE_CONFIG['Tell-Show-Tell'];
+        const activeOrder = state.activeSlideOrder || config.slideOrder;
+        state.deckDoc.querySelectorAll('.slide').forEach(el => {
+          const ds = el.getAttribute('data-section') || '';
+          if (!ds) return;
+          const kebab = labelToKebab(ds);
+          if (!activeOrder.includes(kebab)) {
+            el.style.display = 'none';
+          }
+        });
+        enumerateSlides();
+        renderNav();
+      }
+      rerenderPreview();
+    }
   } catch (err) {
     console.warn('progressive update skipped for', questionId, err.message);
     // Non-fatal — final generate pass will catch it
