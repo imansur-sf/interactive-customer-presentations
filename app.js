@@ -261,9 +261,47 @@ async function generateDeck(answers) {
     });
 
     appendMessage('assistant', 'Click any slide on the right to refine it — I can rewrite copy, swap the accent, tighten the hero, whatever you need.');
+    state.generatedOnce = true;
   } catch (err) {
     console.error(err);
     appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
+  } finally {
+    setBusy(false);
+  }
+}
+
+// ------------------------------------------------------------------ Deck-type regeneration
+// After the initial deck has been generated, switching deck type requires
+// an AI pass to rewrite visible slides in the new type's voice/style.
+async function regenerateForDeckType(answers) {
+  const deckType = answers.deck_type || 'Tell-Show-Tell';
+  setBusy(true, `Adapting content for ${deckType} format…`);
+  try {
+    const resp = await callLLM({
+      turn: 'generate',
+      userMessage: `The deck type has changed to "${deckType}". Regenerate ALL visible slide content to match this deck type's narrative style and flow. Use all the interview answers below.`,
+      deckContext: {
+        answers,
+        logoUrl: state.scrapedLogo || '',
+        meetingNotes: state.meetingNotes || '',
+        slides: state.slides.map(s => ({ idx: s.idx, label: s.label, section: s.dataSection })),
+      },
+      model: 'sonnet',
+    });
+
+    const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
+
+    // Safety net: re-apply brand colors after AI patches
+    applyAccentAndCobrand(answers);
+    rerenderPreview();
+
+    let note = resp.message || `Deck adapted for ${deckType}. ${applied.length} patches applied.`;
+    if (skipped.length) note += ` (${skipped.length} skipped)`;
+    appendMessage('assistant', note);
+    if (skipped.length) console.warn('skipped patches during retype', skipped);
+  } catch (err) {
+    console.error(err);
+    appendMessage('assistant', `⚠️ Could not adapt content: ${err.userMessage || err.message}`);
   } finally {
     setBusy(false);
   }
@@ -439,7 +477,11 @@ async function handleProgressiveUpdate(questionId, answers) {
     }
     if (mapping.action === 'deck-layout' && answers.deck_type) {
       applyDeckTypeLayout(answers.deck_type);
-      rerenderPreview();
+      // If the full deck has already been generated, re-run AI to adapt
+      // content for the new deck type's voice, hero style, and flow
+      if (state.generatedOnce) {
+        await regenerateForDeckType(answers);
+      }
     }
     if (mapping.action === 'cobrand') {
       if (answers.customer) {
@@ -532,7 +574,6 @@ async function sendScopedEdit(text) {
     });
 
     const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
-    detectAndApplyDeckTypeChange(text);
     rerenderPreview();
     appendMessage('assistant', resp.message || `Applied ${applied.length} change${applied.length === 1 ? '' : 's'}.`);
     if (skipped.length) console.warn('skipped patches', skipped);
@@ -549,6 +590,9 @@ async function sendFreeformMessage(text) {
   appendMessage('user', text);
   setBusy(true, 'Working on your request…');
   try {
+    // Detect deck type change FIRST so the AI gets the correct slide list
+    detectAndApplyDeckTypeChange(text);
+
     const resp = await callLLM({
       turn: 'freeform',
       userMessage: text,
@@ -561,7 +605,6 @@ async function sendFreeformMessage(text) {
     });
 
     const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
-    detectAndApplyDeckTypeChange(text);
     rerenderPreview();
     appendMessage('assistant', resp.message || `Applied ${applied.length} change${applied.length === 1 ? '' : 's'}.`);
     if (skipped.length) console.warn('skipped patches', skipped);
@@ -578,6 +621,9 @@ async function sendDeckWideEdit(text) {
   appendMessage('user', text);
   setBusy(true, 'Working on your request…');
   try {
+    // Detect deck type change FIRST so the AI gets the correct slide list
+    detectAndApplyDeckTypeChange(text);
+
     const resp = await callLLM({
       turn: 'freeform',
       userMessage: text,
@@ -590,7 +636,6 @@ async function sendDeckWideEdit(text) {
     });
 
     const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
-    detectAndApplyDeckTypeChange(text);
     rerenderPreview();
     appendMessage('assistant', resp.message || `Applied ${applied.length} change${applied.length === 1 ? '' : 's'}.`);
     if (skipped.length) console.warn('skipped patches', skipped);
