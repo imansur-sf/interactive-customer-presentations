@@ -270,19 +270,31 @@ async function generateDeck(answers) {
 }
 
 // Set all brand color CSS custom properties on deckDoc.
+// Overrides --grad-evening and --sf-navy so every dark slide picks up
+// the brand primary color immediately — no AI patches needed.
 function applyBrandColors(answers) {
   if (!state.deckDoc || !answers.accent_hex) return;
   const root = state.deckDoc.documentElement;
   const primary = answers.accent_hex;
   const secondary = answers.secondary_hex || lightenHex(primary, 0.25);
   const tertiary = answers.tertiary_hex || lightenHex(primary, 0.45);
+  const dark = darkenHex(primary, 0.3);
+  const fg = contrastColor(primary);
+
   // Primary: used as background on dark slides
   root.style.setProperty('--accent', primary);
-  root.style.setProperty('--accent-fg', contrastColor(primary));
-  root.style.setProperty('--accent-bg-dark', darkenHex(primary, 0.3));
+  root.style.setProperty('--accent-fg', fg);
+  root.style.setProperty('--accent-bg-dark', dark);
+
+  // Override the template's built-in dark backgrounds with brand primary
+  root.style.setProperty('--grad-evening', `linear-gradient(180deg, ${dark} 0%, ${primary} 50%, ${secondary} 100%)`);
+  root.style.setProperty('--sf-navy', primary);
+
   // Secondary: used for accents, badges, dots, card borders
   root.style.setProperty('--accent-secondary', secondary);
   root.style.setProperty('--accent-secondary-fg', contrastColor(secondary));
+  root.style.setProperty('--sf-blue', secondary);
+
   // Tertiary: used for stripes, lighter tints, subtle highlights
   root.style.setProperty('--accent-l', tertiary);
   root.style.setProperty('--accent-tertiary-fg', contrastColor(tertiary));
