@@ -387,9 +387,55 @@ export class InterviewController {
       }
     });
 
-    // Submit — advance to next question
+    // Track whether this widget is in edit mode
+    let isEditing = false;
+
+    // Lock widget: disable inputs, dim, show edit button
+    const lockWidget = () => {
+      wrap.querySelectorAll('input, textarea').forEach((el) => el.disabled = true);
+      wrap.querySelectorAll('.q-chip').forEach((el) => el.style.pointerEvents = 'none');
+      wrap.style.opacity = '0.6';
+      suggestBtn.style.display = 'none';
+      submitBtn.textContent = 'Edit Answer';
+      submitBtn.className = 'q-edit';
+      submitBtn.disabled = false;
+      isEditing = false;
+    };
+
+    // Unlock widget: re-enable inputs, restore opacity, show update button
+    const unlockWidget = () => {
+      wrap.querySelectorAll('input, textarea').forEach((el) => el.disabled = false);
+      wrap.querySelectorAll('.q-chip').forEach((el) => el.style.pointerEvents = '');
+      wrap.style.opacity = '1';
+      submitBtn.textContent = 'Update →';
+      submitBtn.className = 'q-submit';
+      validate(); // re-check required fields
+      isEditing = true;
+    };
+
+    // Submit / Edit / Update — single button, three modes
     submitBtn.addEventListener('click', () => {
-      // Normalize URL fields before storing
+      if (isEditing) {
+        // UPDATE mode: save updated answer, fire progressive, re-lock
+        if (state.customer_url) state.customer_url = normalizeUrl(state.customer_url);
+        this.appendMessage('user', '✏️ Updated: ' + summariseAnswer(q, state));
+        Object.assign(this.answers, state);
+        if (this.onAnswer) {
+          this.onAnswer(q.id, { ...this.answers }).catch(err =>
+            console.warn('onAnswer failed for', q.id, err)
+          );
+        }
+        lockWidget();
+        return;
+      }
+
+      if (submitBtn.className === 'q-edit') {
+        // EDIT mode: unlock the widget for editing
+        unlockWidget();
+        return;
+      }
+
+      // INITIAL SUBMIT: advance to next question
       if (state.customer_url) state.customer_url = normalizeUrl(state.customer_url);
       this.appendMessage('user', summariseAnswer(q, state));
       Object.assign(this.answers, state);
@@ -399,8 +445,7 @@ export class InterviewController {
           console.warn('onAnswer failed for', q.id, err)
         );
       }
-      wrap.querySelectorAll('input, textarea, button').forEach((el) => el.disabled = true);
-      wrap.style.opacity = '0.6';
+      lockWidget();
       this.index++;
       this.renderQuestion();
     });

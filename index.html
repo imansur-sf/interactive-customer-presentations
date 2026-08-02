@@ -528,6 +528,24 @@
     .q-submit:hover:not(:disabled) { background: var(--sf-blue-m, #066AFE); }
     .q-submit:disabled { opacity: 0.35; cursor: not-allowed; }
 
+    .q-edit {
+      background: transparent;
+      color: rgba(255,255,255,0.45);
+      border: 1px solid rgba(255,255,255,0.12);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .q-edit:hover {
+      color: rgba(255,255,255,0.8);
+      border-color: rgba(255,255,255,0.3);
+      background: rgba(255,255,255,0.04);
+    }
+
     .q-suggest {
       background: transparent;
       color: rgba(255,255,255,0.75);
