@@ -629,6 +629,12 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
       'Apply patches ONLY for the specified target slide(s). Use the interview answers collected so far to fill in real, personalized content.',
       'If accent_hex is set in answers, use var(--accent) for accent elements on these slides.',
       'Do NOT touch other slides. Keep patches minimal and focused.',
+      '',
+      'CRITICAL RULES FOR PROGRESSIVE UPDATES:',
+      '- HERO KPI CARDS: Do NOT replace `.hero-kpi` or `.hero-kpi-card` elements. Only update text inside `.hkc-val` and `.hkc-label` elements using narrow selectors like `.hero-kpi-card:nth-child(N) .hkc-val`.',
+      '- Do NOT add inline color styles to `.hkc-val` or `.hkc-label` — the CSS handles white text on dark backgrounds. Never set color to accent/orange on KPI cards.',
+      '- Do NOT restructure the `.hero-kpi` container — keep the existing card layout intact.',
+      '- Do NOT replace entire slide-level containers or change overall slide structure.',
     ].join('\n');
   } else if (turn === 'finalize') {
     userPrompt = [
@@ -702,6 +708,12 @@ export function applyPatches(deckDoc, patches) {
       const tagUpper = (target.tagName || '').toUpperCase();
       if (op === 'replace' && (tagUpper === 'HTML' || tagUpper === 'HEAD' || tagUpper === 'BODY')) {
         skipped.push({ patch: p, reason: 'root_element_protected' });
+        continue;
+      }
+
+      // Don't allow AI to replace the hero KPI container or individual cards (protects layout)
+      if (op === 'replace' && (target.classList?.contains('hero-kpi') || target.classList?.contains('hero-kpi-card'))) {
+        skipped.push({ patch: p, reason: 'kpi_layout_protected' });
         continue;
       }
 

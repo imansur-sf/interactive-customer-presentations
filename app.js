@@ -588,6 +588,9 @@ async function handleProgressiveUpdate(questionId, answers) {
     });
     const { applied } = applyPatches(state.deckDoc, resp.patches || []);
     if (applied.length) {
+      // Re-enforce brand colors after AI patches (prevents accent leaking onto KPI cards)
+      try { applyBrandColors(answers); } catch (e) { console.warn('progressive brand failed', e); }
+
       // Re-enforce deck-type visibility after AI patches
       // (prevents excluded slides from becoming visible or changing count)
       const deckType = answers.deck_type;
