@@ -915,6 +915,91 @@
   </script>
   <script src="animation.js"></script>
   <script>
+  /* ─── Hero · CountUp KPI animation — auto-plays on enter ─────── */
+  (() => {
+    const heroSlide = document.querySelector('.slide[data-section="Hero"]');
+    if (!heroSlide) return;
+
+    let hasPlayed = false;
+
+    function playHeroCountUp() {
+      const cards = heroSlide.querySelectorAll('.hkc-val');
+      cards.forEach(el => {
+        // Extract the numeric portion from the text content
+        // e.g. "30%" → 30, "142,800" → 142800, "$2.3M" → 2.3, "3x" → 3
+        const fullText = el.textContent.trim();
+        const spanEl = el.querySelector('span');
+
+        // Get the text that contains the number (might be in a span or directly)
+        const numText = spanEl ? spanEl.textContent.trim() : fullText;
+
+        // Extract number — match integers, decimals, with optional commas
+        const numMatch = numText.match(/([\d,]+\.?\d*)/);
+        if (!numMatch) return; // skip non-numeric values like "AI", "ROI"
+
+        const targetStr = numMatch[1];
+        const target = parseFloat(targetStr.replace(/,/g, ''));
+        if (isNaN(target) || target === 0) return;
+
+        // Determine what's before and after the number
+        const numIdx = numText.indexOf(targetStr);
+        const prefix = numText.slice(0, numIdx);
+        const suffix = numText.slice(numIdx + targetStr.length);
+        const hasCommas = targetStr.includes(',');
+        const isDecimal = targetStr.includes('.');
+        const decimalPlaces = isDecimal ? targetStr.split('.')[1].length : 0;
+
+        // Set initial state to 0
+        const targetEl = spanEl || el;
+        const originalHTML = targetEl.innerHTML;
+        targetEl.textContent = prefix + '0' + suffix;
+
+        // Animate from 0 to target
+        const duration = 1400;
+        const start = performance.now();
+        const step = (now) => {
+          const t = Math.min(1, (now - start) / duration);
+          const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
+          let current = eased * target;
+
+          let formatted;
+          if (isDecimal) {
+            formatted = current.toFixed(decimalPlaces);
+          } else {
+            formatted = Math.floor(current).toString();
+            if (hasCommas) {
+              formatted = Math.floor(current).toLocaleString();
+            }
+          }
+
+          targetEl.textContent = prefix + formatted + suffix;
+          if (t < 1) requestAnimationFrame(step);
+          else targetEl.textContent = prefix + targetStr + suffix;
+        };
+        requestAnimationFrame(step);
+      });
+    }
+
+    function resetHeroCountUp() {
+      hasPlayed = false;
+    }
+
+    // Auto-play when Hero slide becomes active
+    new MutationObserver(([m]) => {
+      if (heroSlide.classList.contains('active')) {
+        // Small delay to let the scale-in entrance animation start first
+        setTimeout(playHeroCountUp, 500);
+      } else {
+        resetHeroCountUp();
+      }
+    }).observe(heroSlide, { attributes: true, attributeFilter: ['class'] });
+
+    // Play on initial load if Hero is already active
+    if (heroSlide.classList.contains('active')) {
+      setTimeout(playHeroCountUp, 600);
+    }
+  })();
+
   /* ─── Slide 4 · Architecture diagram — auto-plays on enter ─────── */
   (() => {
     const NODES = ['s4-n1','s4-n2','s4-n3','s4-n4'];
@@ -1001,8 +1086,9 @@
       document.getElementById('s5-play').disabled = false;
     }
 
-    document.getElementById('s5-play').addEventListener('click', function() {
-      this.disabled = true;
+    function playS5() {
+      resetS5();
+      document.getElementById('s5-play').disabled = true;
       seq.run(async (guard) => {
         // Show user message + type prompt
         userEl.classList.add('show');
@@ -1045,9 +1131,21 @@
         await guard(400);
         complete.style.opacity = '1';
       });
-    });
+    }
 
+    document.getElementById('s5-play').addEventListener('click', () => playS5());
     document.getElementById('s5-reset').addEventListener('click', resetS5);
+
+    // Auto-play when slide becomes active (same pattern as Architecture Diagram)
+    const slide5 = document.querySelector('.slide[data-section="AI in Action"]');
+    if (slide5) {
+      new MutationObserver(([m]) => {
+        if (slide5.classList.contains('active')) playS5();
+        else resetS5();
+      }).observe(slide5, { attributes: true, attributeFilter: ['class'] });
+
+      if (slide5.classList.contains('active')) playS5();
+    }
   })();
 
   /* ─── Slide 6 · Data Pipeline + countUp animation ───────────────── */
@@ -1097,8 +1195,9 @@
       { text: 'journey.step 6 — offer email queued', cls: '' },
     ];
 
-    document.getElementById('s6-play').addEventListener('click', function() {
-      this.disabled = true;
+    function playS6() {
+      resetPipe();
+      document.getElementById('s6-play').disabled = true;
       seq.run(async (guard) => {
         // Node 1 active
         document.getElementById('s6-n1').classList.add('active');
@@ -1162,9 +1261,21 @@
           document.getElementById(id).classList.add('highlight');
         });
       });
-    });
+    }
 
+    document.getElementById('s6-play').addEventListener('click', () => playS6());
     document.getElementById('s6-reset').addEventListener('click', resetPipe);
+
+    // Auto-play when slide becomes active (same pattern as Architecture Diagram)
+    const slide6 = document.querySelector('.slide[data-section="Real-Time Data"]');
+    if (slide6) {
+      new MutationObserver(([m]) => {
+        if (slide6.classList.contains('active')) playS6();
+        else resetPipe();
+      }).observe(slide6, { attributes: true, attributeFilter: ['class'] });
+
+      if (slide6.classList.contains('active')) playS6();
+    }
   })();
   </script>
   <script src="feedback-widget.js"></script>
