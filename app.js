@@ -347,24 +347,21 @@ function applyAccentAndCobrand(answers) {
     if (pillSpan) pillSpan.textContent = answers.customer;
   }
   if (state.scrapedLogo) {
-    const pillImg = state.deckDoc.querySelector('.cobrand-pill img');
-    if (pillImg) {
-      // Add customer logo AFTER the Salesforce logo (or replace if it's the only one)
-      const existingCustomerLogo = state.deckDoc.querySelector('.cobrand-pill .customer-logo');
-      if (!existingCustomerLogo) {
-        const divider = state.deckDoc.querySelector('.cobrand-pill .cobrand-divider');
-        if (divider) {
-          const img = state.deckDoc.createElement('img');
-          img.className = 'customer-logo';
-          img.src = state.scrapedLogo;
-          img.width = 28;
-          img.height = 28;
-          img.alt = answers.customer || 'Customer';
-          img.style.cssText = 'border-radius:4px;object-fit:contain;';
-          divider.insertAdjacentElement('afterend', img);
-        }
-      } else {
-        existingCustomerLogo.src = state.scrapedLogo;
+    const pill = state.deckDoc.querySelector('.cobrand-pill');
+    if (pill) {
+      // Remove ALL existing customer logos first (prevents duplicates from repeated calls)
+      pill.querySelectorAll('.customer-logo').forEach(el => el.remove());
+
+      const divider = pill.querySelector('.cobrand-divider');
+      if (divider) {
+        const img = state.deckDoc.createElement('img');
+        img.className = 'customer-logo';
+        img.src = state.scrapedLogo;
+        img.width = 28;
+        img.height = 28;
+        img.alt = answers.customer || 'Customer';
+        img.style.cssText = 'border-radius:4px;object-fit:contain;';
+        divider.insertAdjacentElement('afterend', img);
       }
     }
   }

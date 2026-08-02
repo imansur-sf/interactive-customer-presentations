@@ -533,8 +533,8 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
       contextBlock,
       '',
       'MANDATORY FIRST PATCHES (apply these BEFORE any slide content):',
-      `1. BRAND COLORS: Primary=${accentHex}${secondaryHex ? `, Secondary=${secondaryHex}` : ''}${tertiaryHex ? `, Tertiary=${tertiaryHex}` : ''}. You MUST emit a "meta" patch: slide_id:"meta", op:"set-style", selector:":root::style(--accent)", new_html:"${accentHex}".${secondaryHex ? ` Also emit meta patches for --accent-secondary:"${secondaryHex}".` : ''}${tertiaryHex ? ` Also emit a meta patch for --accent-l:"${tertiaryHex}".` : ' Also emit a meta patch for --accent-l with a lighter variant of the primary.'}`,
-      `2. COBRAND PILL: Replace the text "SF Composer" inside .cobrand-pill <span> with "${customerName}".${cobrandExtra}`,
+      '1. BRAND COLORS: Already applied programmatically — do NOT emit any :root, meta, or CSS variable patches. The front-end handles all color variables automatically.',
+      `2. COBRAND PILL: Replace the company name text inside .cobrand-pill <span> with "${customerName}".${cobrandExtra}`,
       '',
       'THEN generate patches for ALL slides with fully personalized content:',
       '- Hero: leading_statement as the big H1. Accent-colored eyebrow with industry tags. KPI stat-cards from hero_kpis (value + unit + label + framing).',
@@ -666,6 +666,19 @@ export function applyPatches(deckDoc, patches) {
       if (!target) { skipped.push({ patch: p, reason: 'selector_no_match' }); continue; }
 
       const op = p.op || 'replace';
+
+      // ── Anti-CSS-leak guard ──────────────────────────────────────
+      // If the AI emitted raw CSS rules (:root, @media, selector{…})
+      // as visible HTML, skip the patch to prevent CSS text rendering
+      // on slides. applyBrandColors() handles all colors programmatically.
+      if (op === 'replace' && typeof p.new_html === 'string') {
+        const cssLeakRx = /(:root\s*\{|--[\w-]+\s*:\s*#|@media\s*\(|[.#][\w-]+\s*\{[^}]*\})/;
+        if (cssLeakRx.test(p.new_html)) {
+          skipped.push({ patch: p, reason: 'css_leak_blocked' });
+          continue;
+        }
+      }
+
       if (op === 'replace') {
         const tpl = deckDoc.createElement('template');
         tpl.innerHTML = String(p.new_html || '');
