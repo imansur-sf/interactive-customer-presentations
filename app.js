@@ -213,6 +213,14 @@ async function startInterview() {
         questionSchema,
       });
     },
+    onFieldChange: (questionId, fieldKey, value, answersSoFar) => {
+      // Live preview: when deck_type changes, immediately apply layout
+      if (fieldKey === 'deck_type' && value) {
+        handleProgressiveUpdate('deck-type', answersSoFar).catch(err =>
+          console.warn('live deck-type preview failed', err)
+        );
+      }
+    },
   });
   state.interview.start();
 
@@ -245,8 +253,10 @@ async function generateDeck(answers) {
     const expandedOrder = buildExpandedSlideOrder(answers);
     applyDeckTypeLayout(answers.deck_type, expandedOrder);
 
-    // Force-apply accent + cobrand again AFTER patches (safety net)
+    // Force-apply accent + cobrand + KPI sizing + text contrast AFTER patches (safety net)
     try { applyAccentAndCobrand(answers); } catch (e) { console.warn('post-brand failed', e); }
+    enforceKpiStyling();
+    enforceTextContrast();
     rerenderPreview();
 
     let note = resp.message || `Deck generated. ${applied.length} patches applied.`;
@@ -303,8 +313,10 @@ async function regenerateForDeckType(answers) {
 
     const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
 
-    // Safety net: re-apply brand colors after AI patches
+    // Safety net: re-apply brand colors + KPI styling + text contrast after AI patches
     try { applyAccentAndCobrand(answers); } catch (e) { console.warn('retype brand failed', e); }
+    enforceKpiStyling();
+    enforceTextContrast();
     rerenderPreview();
 
     let note = resp.message || `Deck adapted for ${deckType}. ${applied.length} patches applied.`;
@@ -348,17 +360,11 @@ function applyBrandColors(answers) {
   root.style.setProperty('--accent-l', tertiary);
   root.style.setProperty('--accent-tertiary-fg', contrastColor(tertiary));
 
-  // Enforce white text on hero KPI cards (AI sometimes overrides with dark inline colors)
-  state.deckDoc.querySelectorAll('.hkc-val').forEach(el => {
-    el.style.color = '#fff';
-  });
-  state.deckDoc.querySelectorAll('.hkc-label').forEach(el => {
-    el.style.color = 'rgba(255,255,255,0.5)';
-  });
-  // Keep accent blue on .hkc-val > span (the unit/symbol)
-  state.deckDoc.querySelectorAll('.hkc-val span').forEach(el => {
-    el.style.color = 'var(--sf-blue-l)';
-  });
+  // Enforce KPI card styling (colors + font sizes that AI patches frequently break)
+  enforceKpiStyling();
+
+  // Enforce text contrast after brand color changes (background may have shifted)
+  enforceTextContrast();
 }
 
 // Apply brand colors + customer name to cobrand pill programmatically.
@@ -481,6 +487,9 @@ function applyDeckTypeLayout(deckType, overrideOrder) {
   state.scope = null;
   document.getElementById('scope-chip').classList.remove('visible');
 
+  // Enforce text contrast for the new slide arrangement
+  enforceTextContrast();
+
   // Refresh the iframe so its internal counter/dots match the new visible set
   rerenderPreview();
 }
@@ -588,8 +597,10 @@ async function handleProgressiveUpdate(questionId, answers) {
     });
     const { applied } = applyPatches(state.deckDoc, resp.patches || []);
     if (applied.length) {
-      // Re-enforce brand colors after AI patches (prevents accent leaking onto KPI cards)
+      // Re-enforce brand colors + KPI styling after AI patches
       try { applyBrandColors(answers); } catch (e) { console.warn('progressive brand failed', e); }
+      enforceKpiStyling();
+      enforceTextContrast();
 
       // Re-enforce deck-type visibility after AI patches
       // (prevents excluded slides from becoming visible or changing count)
@@ -1006,6 +1017,173 @@ function fireTrackerEvent(payload) {
     }),
     keepalive: true,
   }).catch(() => {});
+}
+
+// ------------------------------------------------------------------ KPI card styling enforcement
+// Forces proper font sizes and colors on hero KPI cards.  AI patches
+// frequently replace .hkc-val / .hkc-label content and lose the original
+// CSS sizing (32px value vs 12px label).
+function enforceKpiStyling() {
+  if (!state.deckDoc) return;
+
+  // Values: 32px bold white (the big number)
+  state.deckDoc.querySelectorAll('.hkc-val').forEach(el => {
+    el.style.fontSize = '32px';
+    el.style.fontWeight = '700';
+    el.style.color = '#fff';
+    el.style.lineHeight = '1';
+    el.style.marginBottom = '6px';
+    el.style.letterSpacing = '-0.02em';
+  });
+
+  // Labels: 12px muted white (description below the number)
+  state.deckDoc.querySelectorAll('.hkc-label').forEach(el => {
+    el.style.fontSize = '12px';
+    el.style.color = 'rgba(255,255,255,0.5)';
+    el.style.lineHeight = '1.4';
+  });
+
+  // Unit/symbol spans inside values: accent highlight color
+  state.deckDoc.querySelectorAll('.hkc-val span').forEach(el => {
+    el.style.color = 'var(--sf-blue-l)';
+  });
+}
+
+// ------------------------------------------------------------------ Text contrast enforcement
+// Scans all visible slides and forces text to be readable against its
+// background.  Dark backgrounds → light text; light backgrounds → dark text.
+// Called after brand-color application, deck-type layout changes, and
+// progressive AI patches so the user always sees legible slides.
+function enforceTextContrast() {
+  if (!state.deckDoc) return;
+
+  const allSlides = state.deckDoc.querySelectorAll('.slide');
+  allSlides.forEach(slide => {
+    if (slide.style.display === 'none') return; // skip hidden slides
+
+    // Determine if this slide (or its primary wrapper) has a dark background.
+    const isDark = slideHasDarkBackground(slide);
+
+    // HERO slide: AI patches frequently inject inline dark color styles on
+    // hero text.  We must FORCE the correct color, not just clear inline
+    // styles, because a cleared inline style falls back to CSS — but if the
+    // AI also changed the element's class or structure, the CSS rule may no
+    // longer match.
+    const heroEl = slide.querySelector('.hero');
+    if (heroEl) {
+      if (isDark) {
+        // Dark background → force white / light text
+        slide.querySelectorAll('.hero h1').forEach(el => { el.style.color = '#fff'; });
+        slide.querySelectorAll('.hero h1 em').forEach(el => { el.style.color = 'var(--sf-blue-l)'; });
+        slide.querySelectorAll('.hero-sub').forEach(el => { el.style.color = 'rgba(255,255,255,0.65)'; });
+        slide.querySelectorAll('.hero-eyebrow').forEach(el => { el.style.color = 'var(--sf-blue-l)'; });
+        slide.querySelectorAll('.hero-quote p').forEach(el => { el.style.color = 'rgba(255,255,255,0.7)'; });
+        slide.querySelectorAll('.hero-quote cite').forEach(el => { el.style.color = 'rgba(255,255,255,0.4)'; });
+      } else {
+        // Light background → force dark text
+        slide.querySelectorAll('.hero h1').forEach(el => { el.style.color = 'var(--text)'; });
+        slide.querySelectorAll('.hero h1 em').forEach(el => { el.style.color = 'var(--sf-blue)'; });
+        slide.querySelectorAll('.hero-sub').forEach(el => { el.style.color = 'var(--muted)'; });
+        slide.querySelectorAll('.hero-eyebrow').forEach(el => { el.style.color = 'var(--sf-blue)'; });
+        slide.querySelectorAll('.hero-quote p').forEach(el => { el.style.color = 'var(--body)'; });
+        slide.querySelectorAll('.hero-quote cite').forEach(el => { el.style.color = 'var(--muted)'; });
+      }
+      // KPI cards handled separately in enforceKpiStyling
+      return; // hero done — skip generic rules
+    }
+
+    // THANK-YOU slide: the inner wrapper has inline grad-evening background
+    const tyWrap = slide.querySelector('[style*="grad-evening"]');
+    if (tyWrap) {
+      if (isDark) {
+        tyWrap.querySelectorAll('h2, h1').forEach(el => { el.style.color = '#fff'; });
+        tyWrap.querySelectorAll('p').forEach(el => { el.style.color = 'rgba(255,255,255,0.65)'; });
+      } else {
+        tyWrap.querySelectorAll('h2, h1').forEach(el => { el.style.color = 'var(--text)'; });
+        tyWrap.querySelectorAll('p').forEach(el => { el.style.color = 'var(--muted)'; });
+      }
+      return;
+    }
+
+    // CLOSING slide (Next Steps) — may also be on a dark bg
+    if (slide.classList.contains('slide-closing')) {
+      if (isDark) {
+        slide.querySelectorAll('h2').forEach(el => { el.style.color = '#fff'; });
+        slide.querySelectorAll('p').forEach(el => { el.style.color = 'rgba(255,255,255,0.65)'; });
+        slide.querySelectorAll('.c-step').forEach(el => { el.style.color = '#fff'; });
+      } else {
+        slide.querySelectorAll('h2').forEach(el => { el.style.color = ''; });
+        slide.querySelectorAll('p').forEach(el => { el.style.color = ''; });
+        slide.querySelectorAll('.c-step').forEach(el => { el.style.color = ''; });
+      }
+      return;
+    }
+
+    // GENERIC slides (light-bg by default; they may become dark if
+    // --sf-navy or a background class changes)
+    const textColor = isDark ? '#fff' : '';
+    const subColor = isDark ? 'rgba(255,255,255,0.65)' : '';
+    const bodyColor = isDark ? 'rgba(255,255,255,0.7)' : '';
+
+    slide.querySelectorAll('.section-title').forEach(el => { el.style.color = textColor; });
+    slide.querySelectorAll('.section-sub, .eyebrow').forEach(el => { el.style.color = subColor; });
+    slide.querySelectorAll('.card-title, .phase-title, .sc-title').forEach(el => { el.style.color = textColor; });
+    slide.querySelectorAll('.card-body, .phase-item-desc, .sc-body').forEach(el => { el.style.color = bodyColor; });
+  });
+}
+
+// Returns true if a slide's visual background is dark-colored.
+function slideHasDarkBackground(slide) {
+  // 1. Hero slide — always uses --grad-evening which is now customer-accent based
+  if (slide.classList.contains('slide-hero') || slide.querySelector('.hero')) {
+    return isAccentDark();
+  }
+
+  // 2. Check for inline grad-evening or sf-navy in the slide or its first child
+  const inlineCheck = [slide, slide.firstElementChild].filter(Boolean);
+  for (const el of inlineCheck) {
+    const bg = el.style?.background || el.style?.backgroundColor || '';
+    if (bg.includes('grad-evening') || bg.includes('sf-navy')) {
+      return isAccentDark(); // these vars are now overridden by accent
+    }
+  }
+
+  // 3. Check CSS classes
+  if (slide.querySelector('.section-navy') || slide.querySelector('.section-evening')) {
+    return isAccentDark();
+  }
+
+  // 4. Default: light background
+  return false;
+}
+
+// After applyBrandColors, --sf-navy and --grad-evening get set to
+// accent-derived values.  The "darkness" of the accent determines whether
+// those slide backgrounds are dark.
+function isAccentDark() {
+  // Use the current CSS custom property if answers have an accent
+  const root = state.deckDoc?.documentElement;
+  if (!root) return true; // assume dark (safe default)
+  const accentVal = root.style.getPropertyValue('--sf-navy');
+  if (accentVal) {
+    // Extract hex from the CSS value
+    const hexMatch = accentVal.match(/#[0-9a-fA-F]{3,6}/);
+    if (hexMatch) {
+      const lum = luminance(hexMatch[0]);
+      return lum <= 0.5;
+    }
+  }
+  // Fallback: original --sf-navy is #001E5B which is dark
+  return true;
+}
+
+function luminance(hex) {
+  hex = hex.replace('#', '');
+  if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+  const r = parseInt(hex.slice(0,2), 16);
+  const g = parseInt(hex.slice(2,4), 16);
+  const b = parseInt(hex.slice(4,6), 16);
+  return (0.299*r + 0.587*g + 0.114*b) / 255;
 }
 
 // ------------------------------------------------------------------ Utils

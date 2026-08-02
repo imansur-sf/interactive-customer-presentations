@@ -169,12 +169,13 @@ export const QUESTIONS = [
 ];
 
 export class InterviewController {
-  constructor({ container, onComplete, appendMessage, onSuggest, onAnswer }) {
+  constructor({ container, onComplete, appendMessage, onSuggest, onAnswer, onFieldChange }) {
     this.container = container;   // the chat log element
     this.onComplete = onComplete; // called with the collected deckContext
     this.appendMessage = appendMessage;
     this.onSuggest = onSuggest;   // (questionId, questionSchema, answersSoFar) → Promise<{values, rationale}>
     this.onAnswer = onAnswer;     // (questionId, answersSoFar) → void — progressive updates
+    this.onFieldChange = onFieldChange; // (questionId, fieldKey, value, answersSoFar) → void — live preview on select
     this.index = 0;
     this.answers = {};
     this.meetingNotes = '';
@@ -333,7 +334,17 @@ export class InterviewController {
         fieldEl.appendChild(lbl);
       }
 
-      const { el, setValue } = this.renderControl(field, (val) => { state[field.key] = val; validate(); });
+      const { el, setValue } = this.renderControl(field, (val) => {
+        state[field.key] = val;
+        validate();
+        // Fire live-preview callback for fields that need instant visual feedback
+        // (e.g. deck_type radio: user clicks a deck type and sees layout change immediately)
+        if (this.onFieldChange && field.key === 'deck_type' && val) {
+          // Build a snapshot of answers-so-far merged with the new value
+          const preview = { ...this.answers, [field.key]: val };
+          this.onFieldChange(q.id, field.key, val, preview);
+        }
+      });
       setters[field.key] = setValue;
       fieldEl.appendChild(el);
       wrap.appendChild(fieldEl);
