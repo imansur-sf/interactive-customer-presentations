@@ -275,7 +275,9 @@ async function generateDeck(answers) {
 // an AI pass to rewrite visible slides in the new type's voice/style.
 async function regenerateForDeckType(answers) {
   const deckType = answers.deck_type || 'Tell-Show-Tell';
-  setBusy(true, `Adapting content for ${deckType} format…`);
+  // Non-blocking: show status message without disabling the input bar,
+  // so the user can keep typing free-form requests during regeneration.
+  appendMessage('assistant', `Adapting content for ${deckType} format…`);
   try {
     const resp = await callLLM({
       turn: 'generate',
@@ -302,8 +304,6 @@ async function regenerateForDeckType(answers) {
   } catch (err) {
     console.error(err);
     appendMessage('assistant', `⚠️ Could not adapt content: ${err.userMessage || err.message}`);
-  } finally {
-    setBusy(false);
   }
 }
 
@@ -342,28 +342,31 @@ function applyBrandColors(answers) {
 function applyAccentAndCobrand(answers) {
   if (!state.deckDoc) return;
   applyBrandColors(answers);
-  if (answers.customer) {
-    const pillSpan = state.deckDoc.querySelector('.cobrand-pill span');
-    if (pillSpan) pillSpan.textContent = answers.customer;
-  }
-  if (state.scrapedLogo) {
-    const pill = state.deckDoc.querySelector('.cobrand-pill');
-    if (pill) {
-      // Remove ALL existing customer logos first (prevents duplicates from repeated calls)
-      pill.querySelectorAll('.customer-logo').forEach(el => el.remove());
 
-      const divider = pill.querySelector('.cobrand-divider');
-      if (divider) {
-        const img = state.deckDoc.createElement('img');
-        img.className = 'customer-logo';
-        img.src = state.scrapedLogo;
-        img.width = 28;
-        img.height = 28;
-        img.alt = answers.customer || 'Customer';
-        img.style.cssText = 'border-radius:4px;object-fit:contain;';
-        divider.insertAdjacentElement('afterend', img);
-      }
+  const pill = state.deckDoc.querySelector('.cobrand-pill');
+  if (!pill) return;
+  const pillSpan = pill.querySelector('span');
+
+  if (state.scrapedLogo) {
+    // Remove ALL customer logos, then insert fresh one
+    pill.querySelectorAll('.customer-logo').forEach(el => el.remove());
+    const divider = pill.querySelector('.cobrand-divider');
+    if (divider) {
+      const img = state.deckDoc.createElement('img');
+      img.className = 'customer-logo';
+      img.src = state.scrapedLogo;
+      img.width = 28;
+      img.height = 28;
+      img.alt = answers.customer || 'Customer';
+      img.style.cssText = 'border-radius:4px;object-fit:contain;';
+      divider.insertAdjacentElement('afterend', img);
     }
+    // Hide text span — logos are sufficient
+    if (pillSpan) pillSpan.style.display = 'none';
+  } else if (answers.customer && pillSpan) {
+    // No logo yet — show customer name as text fallback
+    pillSpan.textContent = answers.customer;
+    pillSpan.style.display = '';
   }
 }
 
@@ -417,6 +420,12 @@ function applyDeckTypeLayout(deckType) {
   // Re-enumerate visible slides + re-render nav
   enumerateSlides();
   renderNav();
+
+  // Reset to Hero (always slide 0) after layout change so preview
+  // doesn't restore a stale activeSlideIdx from a previously clicked slide
+  state.activeSlideIdx = 0;
+  state.scope = null;
+  document.getElementById('scope-chip').classList.remove('visible');
 
   // Refresh the iframe so its internal counter/dots match the new visible set
   rerenderPreview();
@@ -527,13 +536,12 @@ async function scrapeLogoBackground(url) {
     const data = await res.json();
     if (data.logoUrl) {
       state.scrapedLogo = data.logoUrl;
-      // If deck is loaded, apply immediately
       if (state.deckDoc) {
-        const existingCustomerLogo = state.deckDoc.querySelector('.cobrand-pill .customer-logo');
-        if (existingCustomerLogo) {
-          existingCustomerLogo.src = data.logoUrl;
-        } else {
-          const divider = state.deckDoc.querySelector('.cobrand-pill .cobrand-divider');
+        const pill = state.deckDoc.querySelector('.cobrand-pill');
+        if (pill) {
+          // Remove all existing customer logos, insert fresh
+          pill.querySelectorAll('.customer-logo').forEach(el => el.remove());
+          const divider = pill.querySelector('.cobrand-divider');
           if (divider) {
             const img = state.deckDoc.createElement('img');
             img.className = 'customer-logo';
@@ -543,8 +551,11 @@ async function scrapeLogoBackground(url) {
             img.alt = 'Customer';
             img.style.cssText = 'border-radius:4px;object-fit:contain;';
             divider.insertAdjacentElement('afterend', img);
-            rerenderPreview();
           }
+          // Hide text span — logo is enough
+          const pillSpan = pill.querySelector('span');
+          if (pillSpan) pillSpan.style.display = 'none';
+          rerenderPreview();
         }
       }
     }
@@ -785,11 +796,11 @@ function wireChat() {
       state.scrapedLogo = dataUri;
       // Update cobrand pill with uploaded logo
       if (state.deckDoc) {
-        const existingCustomerLogo = state.deckDoc.querySelector('.cobrand-pill .customer-logo');
-        if (existingCustomerLogo) {
-          existingCustomerLogo.src = dataUri;
-        } else {
-          const divider = state.deckDoc.querySelector('.cobrand-pill .cobrand-divider');
+        const pill = state.deckDoc.querySelector('.cobrand-pill');
+        if (pill) {
+          // Remove all existing customer logos, insert fresh
+          pill.querySelectorAll('.customer-logo').forEach(el => el.remove());
+          const divider = pill.querySelector('.cobrand-divider');
           if (divider) {
             const img = state.deckDoc.createElement('img');
             img.className = 'customer-logo';
@@ -800,6 +811,9 @@ function wireChat() {
             img.style.cssText = 'border-radius:4px;object-fit:contain;';
             divider.insertAdjacentElement('afterend', img);
           }
+          // Hide text span — logo is enough
+          const pillSpan = pill.querySelector('span');
+          if (pillSpan) pillSpan.style.display = 'none';
         }
         rerenderPreview();
       }
@@ -857,8 +871,8 @@ function setBusy(busy, label) {
     log.scrollTop = log.scrollHeight;
   } else {
     document.getElementById('busy-msg')?.remove();
-    // Re-enable input state (respect scope or active interview)
-    if (state.scope != null || state.interviewActive) {
+    // Re-enable input state (during interview, scoped editing, or post-generation)
+    if (state.scope != null || state.interviewActive || state.answers) {
       ta.disabled = false; btn.disabled = false;
     }
   }

@@ -513,20 +513,6 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
     const customerName = deckContext?.answers?.customer || 'Customer';
     const customerUrl = deckContext?.answers?.customer_url || '';
     const logoUrl = deckContext?.logoUrl || '';
-    // Safely extract hostname from customerUrl (may be missing protocol)
-    let cobrandExtra = '';
-    if (logoUrl) {
-      cobrandExtra = ` Also replace the cobrand pill <img> src with "${logoUrl}".`;
-    } else if (customerUrl) {
-      try {
-        const normalized = /^https?:\/\//i.test(customerUrl) ? customerUrl : 'https://' + customerUrl;
-        const hostname = new URL(normalized).hostname;
-        cobrandExtra = ` Also try to replace the cobrand pill <img> src — construct a likely logo URL from the customer domain (e.g. https://logo.clearbit.com/${hostname}).`;
-      } catch (_) {
-        cobrandExtra = ' Also try to replace the cobrand pill <img> src — construct a likely logo URL from the customer domain.';
-      }
-    }
-
     const generateLines = [
       'Generate the COMPLETE personalized deck from ALL interview answers.',
       '',
@@ -534,7 +520,7 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
       '',
       'MANDATORY FIRST PATCHES (apply these BEFORE any slide content):',
       '1. BRAND COLORS: Already applied programmatically — do NOT emit any :root, meta, or CSS variable patches. The front-end handles all color variables automatically.',
-      `2. COBRAND PILL: Replace the company name text inside .cobrand-pill <span> with "${customerName}".${cobrandExtra}`,
+      `2. COBRAND PILL: Replace the company name text inside .cobrand-pill <span> with "${customerName}". Do NOT modify any <img> elements in the cobrand pill — logos are handled automatically by the front-end.`,
       '',
       'THEN generate patches for ALL slides with fully personalized content:',
       '- Hero: leading_statement as the big H1. Accent-colored eyebrow with industry tags. KPI stat-cards from hero_kpis (value + unit + label + framing).',
@@ -666,6 +652,14 @@ export function applyPatches(deckDoc, patches) {
       if (!target) { skipped.push({ patch: p, reason: 'selector_no_match' }); continue; }
 
       const op = p.op || 'replace';
+
+      // ── Cobrand-pill logo guard ─────────────────────────────────
+      // Never let AI patches modify the Salesforce logo in the cobrand pill.
+      // The front-end handles all logo insertion/updates programmatically.
+      if (p.selector && /\.cobrand-pill\b.*\bimg\b/i.test(p.selector)) {
+        skipped.push({ patch: p, reason: 'cobrand_logo_protected' });
+        continue;
+      }
 
       // ── Anti-CSS-leak guard ──────────────────────────────────────
       // If the AI emitted raw CSS rules (:root, @media, selector{…})
