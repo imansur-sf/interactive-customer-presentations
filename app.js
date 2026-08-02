@@ -447,6 +447,9 @@ function labelToKebab(label) {
 // ------------------------------------------------------------------ Progressive updates
 const PROGRESSIVE_MAP = {
   'customer-name': { immediate: true, action: 'cobrand' },
+  'industry':    { slides: ['hero', 'why-now'] },
+  'audience':    { slides: ['hero'] },
+  'bowden-goal': { slides: ['hero'] },
   'leading-statement': { slides: ['hero'] },
   'gap': { slides: ['gap'] },
   'why-now': { slides: ['why-now'] },
@@ -477,9 +480,12 @@ async function handleProgressiveUpdate(questionId, answers) {
     }
     if (mapping.action === 'deck-layout' && answers.deck_type) {
       applyDeckTypeLayout(answers.deck_type);
-      // If the full deck has already been generated, re-run AI to adapt
-      // content for the new deck type's voice, hero style, and flow
-      if (state.generatedOnce) {
+      // Regenerate content whenever there are enough answers to make it
+      // meaningful — works both mid-interview and post-interview
+      const answeredCount = Object.keys(answers).filter(
+        k => answers[k] != null && answers[k] !== ''
+      ).length;
+      if (answeredCount >= 3) {
         await regenerateForDeckType(answers);
       }
     }
