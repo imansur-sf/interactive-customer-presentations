@@ -556,6 +556,7 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
       '- Use var(--accent-secondary-fg) for text on secondary-colored elements.',
       '- Salesforce blues (#001E5B, #022AC0) can still appear on light slides for secondary text.',
       '',
+      '  STRUCTURAL PRESERVATION: When replacing any element, your new_html MUST include all CSS classes and data-* attributes from the original (data-animate, data-anim-delay, class, id). Never strip these — the design system and animation framework depend on them. Keep <em>, <br/>, <span>, <strong> structural tags intact.',
       '  HERO STRUCTURE: Do NOT replace the `.hero`, `.hero-inner`, or `.hero-kpi` containers. Use narrow selectors to update children: `.hero h1`, `.hero-sub`, `.hero-quote p`, `.hero-quote cite`, `.hero-eyebrow`, `.hkc-val`, `.hkc-label`.',
       '  HERO KPI CARDS: The .hero-kpi-card elements sit on dark backgrounds. Do NOT add inline color styles to .hkc-val or .hkc-label — the CSS defaults are white text. Only modify the text CONTENT (value, unit, label), never the color styling.',
       '  COBRAND PILL: Do NOT touch the `.cobrand-pill` element — it is managed programmatically.',
@@ -633,6 +634,9 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
       'Do NOT touch other slides. Keep patches minimal and focused.',
       '',
       'CRITICAL RULES FOR PROGRESSIVE UPDATES:',
+      '- CONTENT ONLY: Change ONLY the text content of elements. NEVER change element tag names, CSS classes, data-animate attributes, data-anim-delay attributes, or id attributes. Your replacement HTML must keep these IDENTICAL to the original.',
+      '- PRESERVE ATTRIBUTES: When replacing an element, your new_html MUST include all CSS classes and data-* attributes from the original element. For example, if replacing `<h1 data-animate="fade-up" data-anim-delay="80">Old text</h1>`, your replacement MUST be `<h1 data-animate="fade-up" data-anim-delay="80">New text</h1>`.',
+      '- PRESERVE STRUCTURE: Keep all <em>, <br/>, <span>, <strong> tags and structural nesting intact. Only change the text within them.',
       '- HERO STRUCTURE: Do NOT replace `.hero`, `.hero-inner`, or `.hero-kpi` containers. Use narrow selectors to update individual children: `.hero h1`, `.hero-sub`, `.hero-quote p`, `.hero-quote cite`, `.hero-eyebrow`.',
       '- HERO KPI CARDS: Do NOT replace `.hero-kpi` or `.hero-kpi-card` elements. Only update text inside `.hkc-val` and `.hkc-label` elements using narrow selectors like `.hero-kpi-card:nth-child(N) .hkc-val`.',
       '- Do NOT add inline color styles to `.hkc-val` or `.hkc-label` — the CSS handles white text on dark backgrounds. Never set color to accent/orange on KPI cards.',
@@ -739,7 +743,13 @@ export function applyPatches(deckDoc, patches) {
         tpl.innerHTML = String(p.new_html || '');
         const frag = tpl.content;
         if (frag.childNodes.length === 1 && frag.firstChild.nodeType === 1) {
-          target.replaceWith(frag.firstChild);
+          const newEl = frag.firstChild;
+          // Preserve structural attributes that the AI frequently strips:
+          // data-animate, data-anim-delay, class, id.  Without these the
+          // element loses its CSS styling and animation hooks, rendering
+          // as plain unstyled text.
+          preserveStructuralAttrs(target, newEl);
+          target.replaceWith(newEl);
         } else {
           const parent = target.parentNode;
           parent.insertBefore(frag, target);
@@ -763,6 +773,42 @@ export function applyPatches(deckDoc, patches) {
     }
   }
   return { applied, skipped };
+}
+
+// -------------------- Structural attribute preservation --------------------
+// When the AI emits a replacement element it frequently drops attributes that
+// the design system and animation framework depend on — CSS classes,
+// data-animate, data-anim-delay, id.  This helper copies them from the old
+// element to the new one when the new element omits them, so the slide retains
+// its visual styling and animation hooks after every patch.
+function preserveStructuralAttrs(oldEl, newEl) {
+  // Animation attributes — critical for the Intersection Observer animations
+  for (const attr of ['data-animate', 'data-anim-delay']) {
+    if (oldEl.hasAttribute(attr) && !newEl.hasAttribute(attr)) {
+      newEl.setAttribute(attr, oldEl.getAttribute(attr));
+    }
+  }
+  // Preserve id (used for slide navigation targeting)
+  if (oldEl.id && !newEl.id) {
+    newEl.id = oldEl.id;
+  }
+  // Preserve CSS class when the new element has none and the tag name matches.
+  // This prevents e.g. a styled <h1 class="..."> from becoming a bare <h1>.
+  if (oldEl.className && !newEl.className &&
+      oldEl.tagName === newEl.tagName) {
+    newEl.className = oldEl.className;
+  }
+  // Recursively preserve attrs on children that match by tag+position.
+  // This handles cases where the AI rebuilds a container's children
+  // (e.g. .hero-kpi-card) without copying their attributes.
+  const oldChildren = Array.from(oldEl.children);
+  const newChildren = Array.from(newEl.children);
+  const len = Math.min(oldChildren.length, newChildren.length);
+  for (let i = 0; i < len; i++) {
+    if (oldChildren[i].tagName === newChildren[i].tagName) {
+      preserveStructuralAttrs(oldChildren[i], newChildren[i]);
+    }
+  }
 }
 
 function sectionForSlideId(deckDoc, slideId) {

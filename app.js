@@ -253,8 +253,9 @@ async function generateDeck(answers) {
     const expandedOrder = buildExpandedSlideOrder(answers);
     applyDeckTypeLayout(answers.deck_type, expandedOrder);
 
-    // Force-apply accent + cobrand + KPI sizing + text contrast AFTER patches (safety net)
+    // Force-apply structure + accent + cobrand + KPI sizing + text contrast AFTER patches (safety net)
     try { applyAccentAndCobrand(answers); } catch (e) { console.warn('post-brand failed', e); }
+    enforceHeroStructure();
     enforceKpiStyling();
     enforceTextContrast();
     rerenderPreview();
@@ -313,8 +314,9 @@ async function regenerateForDeckType(answers) {
 
     const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
 
-    // Safety net: re-apply brand colors + KPI styling + text contrast after AI patches
+    // Safety net: re-apply structure + brand colors + KPI styling + text contrast after AI patches
     try { applyAccentAndCobrand(answers); } catch (e) { console.warn('retype brand failed', e); }
+    enforceHeroStructure();
     enforceKpiStyling();
     enforceTextContrast();
     rerenderPreview();
@@ -360,10 +362,9 @@ function applyBrandColors(answers) {
   root.style.setProperty('--accent-l', tertiary);
   root.style.setProperty('--accent-tertiary-fg', contrastColor(tertiary));
 
-  // Enforce KPI card styling (colors + font sizes that AI patches frequently break)
+  // Enforce hero structure + KPI card styling + text contrast after color changes
+  enforceHeroStructure();
   enforceKpiStyling();
-
-  // Enforce text contrast after brand color changes (background may have shifted)
   enforceTextContrast();
 }
 
@@ -487,7 +488,8 @@ function applyDeckTypeLayout(deckType, overrideOrder) {
   state.scope = null;
   document.getElementById('scope-chip').classList.remove('visible');
 
-  // Enforce text contrast for the new slide arrangement
+  // Enforce structure + text contrast for the new slide arrangement
+  enforceHeroStructure();
   enforceTextContrast();
 
   // Refresh the iframe so its internal counter/dots match the new visible set
@@ -516,11 +518,10 @@ function labelToKebab(label) {
 // ------------------------------------------------------------------ Progressive updates
 const PROGRESSIVE_MAP = {
   'customer-name': { immediate: true, action: 'cobrand' },
-  // 'industry' and 'audience' intentionally skipped — too early to
-  // produce good hero content, and the AI patches break the layout.
-  // The final generate pass incorporates industry + audience properly.
-  'bowden-goal': { slides: ['hero'] },
-  'leading-statement': { slides: ['hero'] },
+  // 'industry', 'audience', 'bowden-goal', 'leading-statement' intentionally
+  // skipped — the AI progressive patches targeting the hero slide break KPI
+  // card styling (values shrink from 32px bold to label-size text) and disrupt
+  // layout. The final generate pass incorporates all of these properly.
   'gap': { slides: ['gap'] },
   'why-now': { slides: ['why-now'] },
   'hero-kpis': { slides: ['hero'] },
@@ -551,12 +552,11 @@ async function handleProgressiveUpdate(questionId, answers) {
     }
     if (mapping.action === 'deck-layout' && answers.deck_type) {
       applyDeckTypeLayout(answers.deck_type);
-      // Regenerate content whenever there are enough answers to make it
-      // meaningful — works both mid-interview and post-interview
-      const answeredCount = Object.keys(answers).filter(
-        k => answers[k] != null && answers[k] !== ''
-      ).length;
-      if (answeredCount >= 3) {
+      // Only regenerate content if the deck has already been generated once.
+      // During the interview we just reorder/show/hide slides — the content
+      // comes from the final generate pass.  Firing a full AI regeneration
+      // with only a few answers produces garbage and corrupts slide structure.
+      if (state.generatedOnce) {
         await regenerateForDeckType(answers);
       }
     }
@@ -598,8 +598,9 @@ async function handleProgressiveUpdate(questionId, answers) {
     });
     const { applied } = applyPatches(state.deckDoc, resp.patches || []);
     if (applied.length) {
-      // Re-enforce brand colors + KPI styling after AI patches
+      // Re-enforce structure + brand colors + KPI styling after AI patches
       try { applyBrandColors(answers); } catch (e) { console.warn('progressive brand failed', e); }
+      enforceHeroStructure();
       enforceKpiStyling();
       enforceTextContrast();
 
@@ -1130,6 +1131,82 @@ function enforceTextContrast() {
     slide.querySelectorAll('.section-sub, .eyebrow').forEach(el => { el.style.color = subColor; });
     slide.querySelectorAll('.card-title, .phase-title, .sc-title').forEach(el => { el.style.color = textColor; });
     slide.querySelectorAll('.card-body, .phase-item-desc, .sc-body').forEach(el => { el.style.color = bodyColor; });
+  });
+}
+
+// ------------------------------------------------------------------ Hero structure enforcement
+// Safety net that verifies the hero slide's critical DOM structure is intact
+// after AI patches.  If the AI stripped CSS classes from hero children or
+// removed wrapper containers, this function restores them so the design
+// system's CSS rules can match.
+function enforceHeroStructure() {
+  if (!state.deckDoc) return;
+
+  const heroSlide = state.deckDoc.querySelector('.slide[data-section="Hero"]');
+  if (!heroSlide) return;
+
+  // Ensure .hero wrapper exists
+  let hero = heroSlide.querySelector('.hero');
+  if (!hero) {
+    // The entire .hero wrapper was stripped — look for the content directly
+    // in the slide-body and wrap it
+    const body = heroSlide.querySelector('.slide-body');
+    if (!body) return;
+    const innerDiv = body.querySelector('.hero-inner') || body.querySelector('div');
+    if (innerDiv && !innerDiv.classList.contains('hero')) {
+      innerDiv.classList.add('hero');
+      hero = innerDiv;
+    } else {
+      return;
+    }
+  }
+
+  // Ensure .hero-inner exists inside .hero
+  let inner = hero.querySelector('.hero-inner');
+  if (!inner) {
+    // If hero-inner was stripped, wrap hero's children in it
+    inner = state.deckDoc.createElement('div');
+    inner.className = 'hero-inner';
+    while (hero.firstChild) inner.appendChild(hero.firstChild);
+    hero.appendChild(inner);
+  }
+
+  // Ensure hero-eyebrow has its class
+  const eyebrow = inner.querySelector('.hero-eyebrow');
+  // (eyebrow may not exist yet if deck hasn't been generated — that's fine)
+
+  // Ensure hero-sub has its class
+  // (these are structural elements the CSS depends on — if they exist
+  //  without their class, the styles won't apply)
+
+  // Ensure .hero-kpi container exists
+  const kpi = inner.querySelector('.hero-kpi');
+  if (kpi) {
+    // Ensure each direct child div has .hero-kpi-card
+    kpi.querySelectorAll(':scope > div').forEach(card => {
+      if (!card.classList.contains('hero-kpi-card')) {
+        card.classList.add('hero-kpi-card');
+      }
+    });
+    // Ensure .hkc-val and .hkc-label classes exist on KPI card children
+    kpi.querySelectorAll('.hero-kpi-card').forEach(card => {
+      const children = Array.from(card.children);
+      if (children.length >= 2) {
+        if (!children[0].classList.contains('hkc-val')) {
+          children[0].classList.add('hkc-val');
+        }
+        if (!children[1].classList.contains('hkc-label')) {
+          children[1].classList.add('hkc-label');
+        }
+      }
+    });
+  }
+
+  // Ensure the hero-quote has its class (if present)
+  inner.querySelectorAll('blockquote, .hero-quote').forEach(el => {
+    if (!el.classList.contains('hero-quote') && el.tagName === 'BLOCKQUOTE') {
+      el.classList.add('hero-quote');
+    }
   });
 }
 
