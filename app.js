@@ -516,8 +516,9 @@ function labelToKebab(label) {
 // ------------------------------------------------------------------ Progressive updates
 const PROGRESSIVE_MAP = {
   'customer-name': { immediate: true, action: 'cobrand' },
-  'industry':    { slides: ['hero', 'why-now'] },
-  'audience':    { slides: ['hero'] },
+  // 'industry' and 'audience' intentionally skipped — too early to
+  // produce good hero content, and the AI patches break the layout.
+  // The final generate pass incorporates industry + audience properly.
   'bowden-goal': { slides: ['hero'] },
   'leading-statement': { slides: ['hero'] },
   'gap': { slides: ['gap'] },
