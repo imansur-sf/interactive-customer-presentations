@@ -176,7 +176,9 @@ function selectSlide(idx) {
 
 function clearScope() {
   state.scope = null;
-  state.activeSlideIdx = null;
+  // Deliberately leave activeSlideIdx alone: it tracks "which slide is the
+  // user currently looking at" for freeform-chat reference fallback and
+  // re-render position restore, independent of the explicit scope lock.
   document.querySelectorAll('.nav-item').forEach((el) => el.classList.remove('active'));
   document.getElementById('scope-chip').classList.remove('visible');
   document.getElementById('chat-textarea').placeholder = 'Type a message… (⏎ to send)';
