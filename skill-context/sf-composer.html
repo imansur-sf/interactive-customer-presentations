@@ -920,47 +920,56 @@
     const heroSlide = document.querySelector('.slide[data-section="Hero"]');
     if (!heroSlide) return;
 
-    let hasPlayed = false;
+    // Re-entering the Hero slide re-triggers this animation. A token per
+    // element lets a new run tell any still-in-flight rAF loop for the same
+    // element to stop writing, instead of racing it and freezing on whatever
+    // intermediate value happened to be on screen when it lost the race.
+    const tokens = new WeakMap();
 
     function playHeroCountUp() {
       const cards = heroSlide.querySelectorAll('.hkc-val');
       cards.forEach(el => {
-        // Extract the numeric portion from the text content
-        // e.g. "30%" → 30, "142,800" → 142800, "$2.3M" → 2.3, "3x" → 3
-        const fullText = el.textContent.trim();
         const spanEl = el.querySelector('span');
+        const targetEl = spanEl || el;
 
-        // Get the text that contains the number (might be in a span or directly)
-        const numText = spanEl ? spanEl.textContent.trim() : fullText;
+        // Parse the true target once and cache it on the element — re-parsing
+        // from live text on every replay would read back a mid-animation
+        // value instead of the original number.
+        let cached = targetEl.dataset.countupTarget;
+        if (!cached) {
+          const numText = targetEl.textContent.trim();
+          const numMatch = numText.match(/([\d,]+\.?\d*)/);
+          if (!numMatch) return; // skip non-numeric values like "AI", "ROI"
+          const targetStr = numMatch[1];
+          if (isNaN(parseFloat(targetStr)) || parseFloat(targetStr) === 0) return;
+          const numIdx = numText.indexOf(targetStr);
+          cached = JSON.stringify({
+            prefix: numText.slice(0, numIdx),
+            suffix: numText.slice(numIdx + targetStr.length),
+            targetStr,
+          });
+          targetEl.dataset.countupTarget = cached;
+        }
 
-        // Extract number — match integers, decimals, with optional commas
-        const numMatch = numText.match(/([\d,]+\.?\d*)/);
-        if (!numMatch) return; // skip non-numeric values like "AI", "ROI"
-
-        const targetStr = numMatch[1];
+        const { prefix, suffix, targetStr } = JSON.parse(cached);
         const target = parseFloat(targetStr.replace(/,/g, ''));
-        if (isNaN(target) || target === 0) return;
-
-        // Determine what's before and after the number
-        const numIdx = numText.indexOf(targetStr);
-        const prefix = numText.slice(0, numIdx);
-        const suffix = numText.slice(numIdx + targetStr.length);
         const hasCommas = targetStr.includes(',');
         const isDecimal = targetStr.includes('.');
         const decimalPlaces = isDecimal ? targetStr.split('.')[1].length : 0;
 
-        // Set initial state to 0
-        const targetEl = spanEl || el;
-        const originalHTML = targetEl.innerHTML;
+        const myToken = (tokens.get(targetEl) || 0) + 1;
+        tokens.set(targetEl, myToken);
+
         targetEl.textContent = prefix + '0' + suffix;
 
         // Animate from 0 to target
         const duration = 1400;
         const start = performance.now();
         const step = (now) => {
+          if (tokens.get(targetEl) !== myToken) return; // superseded by a newer trigger
           const t = Math.min(1, (now - start) / duration);
           const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
-          let current = eased * target;
+          const current = eased * target;
 
           let formatted;
           if (isDecimal) {
@@ -980,17 +989,11 @@
       });
     }
 
-    function resetHeroCountUp() {
-      hasPlayed = false;
-    }
-
     // Auto-play when Hero slide becomes active
-    new MutationObserver(([m]) => {
+    new MutationObserver(() => {
       if (heroSlide.classList.contains('active')) {
         // Small delay to let the scale-in entrance animation start first
         setTimeout(playHeroCountUp, 500);
-      } else {
-        resetHeroCountUp();
       }
     }).observe(heroSlide, { attributes: true, attributeFilter: ['class'] });
 
