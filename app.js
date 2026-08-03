@@ -699,45 +699,14 @@ async function sendScopedEdit(text) {
   }
 }
 
-// ------------------------------------------------------------------ Free-form message (during interview)
-async function sendFreeformMessage(text) {
+// ------------------------------------------------------------------ Free-form deck request
+// Handles any un-scoped chat message — during interview, post-generation, or
+// against the freshly-loaded reference deck. The LLM sees the current slide
+// list and any slide the user explicitly referenced.
+async function sendFreeformRequest(text) {
   appendMessage('user', text);
   setBusy(true, 'Working on your request…');
   try {
-    // Detect deck type change FIRST so the AI gets the correct slide list
-    detectAndApplyDeckTypeChange(text);
-
-    const resp = await callLLM({
-      turn: 'freeform',
-      userMessage: text,
-      deckContext: {
-        answers: state.answers || {},
-        meetingNotes: state.meetingNotes || '',
-        slides: state.slides.map((s) => ({ idx: s.idx, label: s.label, section: s.dataSection })),
-        currentSlides: extractReferencedSlides(text),
-        chatHistory: getRecentChatHistory(5),
-      },
-      model: 'sonnet',
-    });
-
-    const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
-    rerenderPreview();
-    appendMessage('assistant', resp.message || `Applied ${applied.length} change${applied.length === 1 ? '' : 's'}.`);
-    if (skipped.length) console.warn('skipped patches', skipped);
-  } catch (err) {
-    console.error(err);
-    appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
-  } finally {
-    setBusy(false);
-  }
-}
-
-// ------------------------------------------------------------------ Deck-wide edit (post-generation, no slide scoped)
-async function sendDeckWideEdit(text) {
-  appendMessage('user', text);
-  setBusy(true, 'Working on your request…');
-  try {
-    // Detect deck type change FIRST so the AI gets the correct slide list
     detectAndApplyDeckTypeChange(text);
 
     const resp = await callLLM({
@@ -933,14 +902,8 @@ function sendMessage() {
 
   if (state.scope != null) {
     sendScopedEdit(text);
-  } else if (state.interviewActive) {
-    sendFreeformMessage(text);
-  } else if (state.answers) {
-    // Post-generation: allow deck-wide edits without scoping a slide
-    sendDeckWideEdit(text);
   } else {
-    appendMessage('user', text);
-    appendMessage('assistant', 'Click a slide on the right first, or click Start interview to build a deck from scratch.');
+    sendFreeformRequest(text);
   }
 }
 
@@ -971,10 +934,6 @@ function setBusy(busy, label) {
     log.scrollTop = log.scrollHeight;
   } else {
     document.getElementById('busy-msg')?.remove();
-    // Re-enable input state (during interview, scoped editing, or post-generation)
-    if (state.scope != null || state.interviewActive || state.answers) {
-      ta.disabled = false; btn.disabled = false;
-    }
   }
 }
 
