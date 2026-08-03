@@ -260,9 +260,8 @@ async function generateDeck(answers) {
     enforceTextContrast();
     rerenderPreview();
 
-    let note = resp.message || `Deck generated. ${applied.length} patches applied.`;
-    if (skipped.length) note += ` (${skipped.length} skipped — will note in console.)`;
-    appendMessage('assistant', note);
+    const note = resp.message || 'Deck generated.';
+    appendMessage('assistant', note, { applied, skipped });
     if (skipped.length) console.warn('skipped patches', skipped);
 
     fireTrackerEvent({
@@ -321,9 +320,8 @@ async function regenerateForDeckType(answers) {
     enforceTextContrast();
     rerenderPreview();
 
-    let note = resp.message || `Deck adapted for ${deckType}. ${applied.length} patches applied.`;
-    if (skipped.length) note += ` (${skipped.length} skipped)`;
-    appendMessage('assistant', note);
+    const note = resp.message || `Deck adapted for ${deckType}.`;
+    appendMessage('assistant', note, { applied, skipped });
     if (skipped.length) console.warn('skipped patches during retype', skipped);
   } catch (err) {
     console.error(err);
@@ -689,7 +687,7 @@ async function sendScopedEdit(text) {
 
     const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
     rerenderPreview();
-    appendMessage('assistant', resp.message || `Applied ${applied.length} change${applied.length === 1 ? '' : 's'}.`);
+    appendMessage('assistant', resp.message || `Applied ${applied.length} change${applied.length === 1 ? '' : 's'}.`, { applied, skipped });
     if (skipped.length) console.warn('skipped patches', skipped);
   } catch (err) {
     console.error(err);
@@ -724,7 +722,7 @@ async function sendFreeformRequest(text) {
 
     const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
     rerenderPreview();
-    appendMessage('assistant', resp.message || `Applied ${applied.length} change${applied.length === 1 ? '' : 's'}.`);
+    appendMessage('assistant', resp.message || `Applied ${applied.length} change${applied.length === 1 ? '' : 's'}.`, { applied, skipped });
     if (skipped.length) console.warn('skipped patches', skipped);
   } catch (err) {
     console.error(err);
@@ -908,12 +906,50 @@ function sendMessage() {
 }
 
 // ------------------------------------------------------------------ Chat log helpers
-function appendMessage(role, text) {
+const PATCH_SKIP_REASONS = {
+  slide_not_found: 'target slide not found',
+  selector_no_match: "selector didn't match anything on the slide",
+  cobrand_logo_protected: 'blocked — logo is managed automatically',
+  css_leak_blocked: 'blocked — patch contained raw CSS instead of content',
+  slide_element_protected: "blocked — can't replace a whole slide container",
+  root_element_protected: "blocked — can't replace document root elements",
+  kpi_layout_protected: 'blocked — KPI layout is protected',
+  hero_structure_protected: 'blocked — hero layout is protected',
+  cobrand_protected: 'blocked — cobrand pill is protected',
+  attr_op_missing_suffix: 'malformed attribute patch',
+  style_op_missing_suffix: 'malformed style patch',
+};
+
+function renderPatchBadge(applied, skipped) {
+  applied = applied || [];
+  skipped = skipped || [];
+  const total = applied.length + skipped.length;
+  if (!total) return '';
+  const ok = skipped.length === 0;
+  const summary = ok
+    ? `Applied ${applied.length} of ${total}`
+    : `Applied ${applied.length} of ${total} — ${skipped.length} skipped`;
+  let html = `<div class="patch-badge ${ok ? 'ok' : 'warn'}">${escapeHtml(summary)}</div>`;
+  if (skipped.length) {
+    const items = skipped.map(({ patch, reason }) => {
+      const slideId = escapeHtml(patch?.slide_id || '?');
+      const selector = escapeHtml(patch?.selector || '?');
+      const reasonText = escapeHtml(PATCH_SKIP_REASONS[reason] || reason || 'unknown');
+      return `<li><strong>${slideId}</strong> <code>${selector}</code> — ${reasonText}</li>`;
+    }).join('');
+    html += `<details class="patch-details"><summary>Why were changes skipped?</summary><ul>${items}</ul></details>`;
+  }
+  return html;
+}
+
+function appendMessage(role, text, patchResult) {
   const log = document.getElementById('chat-log');
   const div = document.createElement('div');
   div.className = `msg ${role}`;
   const label = role === 'user' ? 'You' : 'Imran AI';
-  div.innerHTML = `<div class="msg-label">${label}</div>${escapeHtml(text)}`;
+  let html = `<div class="msg-label">${label}</div>${escapeHtml(text)}`;
+  if (patchResult) html += renderPatchBadge(patchResult.applied, patchResult.skipped);
+  div.innerHTML = html;
   log.appendChild(div);
   log.scrollTop = log.scrollHeight;
 }
