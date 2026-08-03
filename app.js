@@ -39,6 +39,7 @@ const state = {
   scrapedLogo: null, // logo URL scraped from customer website
   meetingNotes: '',   // optional meeting notes / context from user
   activeSlideOrder: null, // current slide order (may be expanded by animations)
+  pendingSlideClarification: null, // { candidates, originalText } while awaiting disambiguation reply
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -364,6 +365,7 @@ function applyBrandColors(answers) {
   root.style.setProperty('--accent-secondary', secondary);
   root.style.setProperty('--accent-secondary-fg', contrastColor(secondary));
   root.style.setProperty('--sf-blue', secondary);
+  root.style.setProperty('--chat-user-fg', contrastColor(secondary));
 
   // Tertiary: used for stripes, lighter tints, subtle highlights
   root.style.setProperty('--accent-l', tertiary);
@@ -718,6 +720,43 @@ async function sendScopedEdit(text) {
 // list and any slide the user explicitly referenced.
 async function sendFreeformRequest(text) {
   appendMessage('user', text);
+
+  const { slides: referencedSlides, ambiguousLabels } = extractReferencedSlides(text);
+  if (ambiguousLabels.length > 0) {
+    state.pendingSlideClarification = { candidates: ambiguousLabels, originalText: text };
+    appendMessage('assistant', `Did you mean the ${ambiguousLabels.join(' or the ')} slide? Let me know which one and I'll continue.`);
+    return;
+  }
+
+  await runFreeformRequest(text, referencedSlides);
+}
+
+// Resolve a reply sent while a slide-reference clarification is pending.
+// If the reply names one of the candidate slides, re-run the original
+// request against that slide; otherwise treat it as a normal new request.
+function resolvePendingSlideClarification(replyText) {
+  const pending = state.pendingSlideClarification;
+  state.pendingSlideClarification = null;
+
+  const lower = replyText.toLowerCase();
+  const resolved = state.slides.find((slide) => {
+    if (!pending.candidates.includes(slide.label)) return false;
+    if (lower.includes(slide.label.toLowerCase())) return true;
+    const aliases = SLIDE_LABEL_ALIASES[slide.label] || [];
+    return aliases.some((a) => lower.includes(a));
+  });
+
+  if (resolved) {
+    appendMessage('user', replyText);
+    const inner = document.getElementById('preview-iframe')?.contentDocument;
+    const el = inner?.getElementById(resolved.id);
+    runFreeformRequest(pending.originalText, [{ label: resolved.label, html: el ? el.outerHTML : '' }]);
+  } else {
+    sendFreeformRequest(replyText);
+  }
+}
+
+async function runFreeformRequest(text, referencedSlides) {
   const controller = new AbortController();
   activeAbort = controller;
   setBusy(true, 'Working on your request…');
@@ -731,7 +770,7 @@ async function sendFreeformRequest(text) {
         answers: state.answers || {},
         meetingNotes: state.meetingNotes || '',
         slides: state.slides.map((s) => ({ idx: s.idx, label: s.label, section: s.dataSection })),
-        currentSlides: extractReferencedSlides(text),
+        currentSlides: referencedSlides,
         chatHistory: getRecentChatHistory(5),
       },
       model: 'sonnet',
@@ -783,7 +822,7 @@ const REFERENCE_STOPWORDS = new Set([
 function extractReferencedSlides(text) {
   const results = [];
   const inner = document.getElementById('preview-iframe')?.contentDocument;
-  if (!inner || !state.slides?.length) return results;
+  if (!inner || !state.slides?.length) return { slides: results, ambiguousLabels: [] };
 
   const seen = new Set();
   const lower = text.toLowerCase();
@@ -822,7 +861,10 @@ function extractReferencedSlides(text) {
   }
 
   // Vague references (e.g. "the pricing one") — search actual slide copy for a
-  // content word from the message that appears on exactly one slide.
+  // content word from the message that appears on exactly one slide. If a word
+  // matches more than one slide, remember the collision — a later, more specific
+  // word may still narrow it down to exactly one.
+  let ambiguousMatches = null;
   if (results.length === 0) {
     const words = [...new Set(lower.match(/[a-z]{4,}/g) || [])].filter((w) => !REFERENCE_STOPWORDS.has(w));
     for (const word of words) {
@@ -830,17 +872,26 @@ function extractReferencedSlides(text) {
         const el = inner.getElementById(slide.id);
         return (el?.textContent || '').toLowerCase().includes(word);
       });
-      if (matches.length === 1) { addSlide(matches[0]); break; }
+      if (matches.length === 1) { addSlide(matches[0]); ambiguousMatches = null; break; }
+      if (matches.length > 1 && !ambiguousMatches) ambiguousMatches = matches;
     }
+  }
+
+  if (results.length > 0) return { slides: results, ambiguousLabels: [] };
+
+  // An unresolved collision means the message is genuinely ambiguous — surface
+  // that instead of silently falling back to whatever slide is on screen.
+  if (ambiguousMatches) {
+    return { slides: results, ambiguousLabels: ambiguousMatches.map((s) => s.label) };
   }
 
   // Fallback: if still nothing detected, include whichever slide is
   // currently visible in the preview (the user is probably looking at it)
-  if (results.length === 0 && state.activeSlideIdx != null) {
+  if (state.activeSlideIdx != null) {
     addSlide(state.slides[state.activeSlideIdx]);
   }
 
-  return results;
+  return { slides: results, ambiguousLabels: [] };
 }
 
 // Collect the last N chat messages for multi-turn context
@@ -967,6 +1018,8 @@ function sendMessage() {
 
   if (state.scope != null) {
     sendScopedEdit(text);
+  } else if (state.pendingSlideClarification) {
+    resolvePendingSlideClarification(text);
   } else {
     sendFreeformRequest(text);
   }
@@ -1050,6 +1103,7 @@ function wireNavFooter() {
     if (!confirm('Reset the deck back to the blank reference?')) return;
     await loadReferenceDeck();
     state.answers = null;
+    state.pendingSlideClarification = null;
     clearScope();
     document.getElementById('chat-log').innerHTML = '';
     appendMessage('assistant', 'Deck reset to the blank reference. Click Start interview to begin building it out.');

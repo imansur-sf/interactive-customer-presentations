@@ -278,7 +278,7 @@ hr.divider-navy { border: none; border-top: 1px solid rgba(255,255,255,0.1); }
 }
 .proof-desc { font-size: 13px; color: rgba(255,255,255,0.6); line-height: 1.7; }
 .proof-desc strong { color: rgba(255,255,255,0.85); }
-.proof-source { font-size: 11px; color: rgba(255,255,255,0.35); margin-top: 12px; }
+.proof-source { font-size: 11px; color: rgba(255,255,255,0.55); margin-top: 12px; }
 .proof-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .proof-stat {
   background: rgba(2,42,192,0.25);
@@ -368,7 +368,7 @@ hr.divider-navy { border: none; border-top: 1px solid rgba(255,255,255,0.1); }
   border-radius: 4px; padding: 12px 20px;
   font-size: 13px; color: var(--white); font-weight: 600;
 }
-.c-arrow { color: rgba(255,255,255,0.3); font-size: 16px; }
+.c-arrow { color: rgba(255,255,255,0.55); font-size: 16px; }
 .c-step.primary { background: var(--accent); border-color: var(--accent); }
 
 /* ── BUTTONS ─────────────────────────────────────────────────── */

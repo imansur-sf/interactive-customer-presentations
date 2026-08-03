@@ -44,7 +44,7 @@
 .chat-msg.user {
   align-self: flex-end;
   background: var(--sf-blue, #022AC0);
-  color: #fff;
+  color: var(--chat-user-fg, #fff);
   border-bottom-right-radius: 3px;
 }
 .chat-msg.bot {
