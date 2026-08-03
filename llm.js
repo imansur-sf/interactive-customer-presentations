@@ -52,18 +52,18 @@ export async function suggestAnswer({ questionId, deckContext, questionSchema })
  * The unified LLM call. Builds the system prompt and tool schema in-browser,
  * then posts to the same-origin /api/llm endpoint which proxies to Gemini.
  */
-export async function callLLM(payload) {
+export async function callLLM(payload, { signal } = {}) {
   const heavyTurns = ['generate', 'freeform', 'finalize'];
   if (heavyTurns.includes(payload?.turn)) {
-    return callServerStream(payload);
+    return callServerStream(payload, signal);
   }
-  return callServer(payload);
+  return callServer(payload, signal);
 }
 // Back-compat alias for older imports.
 export const callWorker = callLLM;
 
 // -------------------- Server proxy path --------------------
-async function callServer(payload) {
+async function callServer(payload, signal) {
   const {
     turn = 'answer',
     questionId,
@@ -99,8 +99,10 @@ async function callServer(payload) {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
+      signal,
     });
   } catch (err) {
+    if (err.name === 'AbortError') throw err;
     throwUser(
       'server_unreachable',
       `Server not reachable: ${err.message}.`
@@ -131,7 +133,7 @@ async function callServer(payload) {
 }
 
 // -------------------- Streaming path (SSE — for heavy calls) --------------------
-async function callServerStream(payload) {
+async function callServerStream(payload, signal) {
   const {
     turn = 'answer',
     questionId,
@@ -167,8 +169,10 @@ async function callServerStream(payload) {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
+      signal,
     });
   } catch (err) {
+    if (err.name === 'AbortError') throw err;
     throwUser('server_unreachable', `Server not reachable: ${err.message}.`);
   }
 

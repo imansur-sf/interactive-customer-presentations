@@ -25,6 +25,7 @@ const LS = {
 
 // Label overrides applied by index — recalculated after deck-type reorder
 let SLIDE_LABEL_OVERRIDES = { 0: 'Hero', 11: 'Thank You' };
+let activeAbort = null; // AbortController for the in-flight LLM call, if any
 
 const state = {
   deckDoc: null,
@@ -229,6 +230,8 @@ async function startInterview() {
 }
 
 async function generateDeck(answers) {
+  const controller = new AbortController();
+  activeAbort = controller;
   setBusy(true, 'Generating deck…');
   try {
     // Force-apply accent color + cobrand BEFORE AI call (instant visual feedback)
@@ -245,7 +248,7 @@ async function generateDeck(answers) {
         slides: state.slides.map((s) => ({ idx: s.idx, label: s.label, section: s.dataSection })),
       },
       model: 'sonnet',
-    });
+    }, { signal: controller.signal });
 
     const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
 
@@ -277,8 +280,12 @@ async function generateDeck(answers) {
     appendMessage('assistant', 'Click any slide on the right to refine it — I can rewrite copy, swap the accent, tighten the hero, whatever you need.');
     state.generatedOnce = true;
   } catch (err) {
-    console.error(err);
-    appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
+    if (err.name === 'AbortError') {
+      appendMessage('assistant', 'Cancelled.');
+    } else {
+      console.error(err);
+      appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
+    }
   } finally {
     // Always rebuild the slide nav so the TOC stays current even after errors
     try {
@@ -671,6 +678,8 @@ async function sendScopedEdit(text) {
   const currentHtml = currentSlideEl ? currentSlideEl.outerHTML : '';
 
   appendMessage('user', text);
+  const controller = new AbortController();
+  activeAbort = controller;
   setBusy(true, `Refining ${slide.label}…`);
   try {
     const resp = await callLLM({
@@ -683,15 +692,19 @@ async function sendScopedEdit(text) {
         slideLabel: slide.label,
       },
       model: 'sonnet', // cheaper for scoped edits
-    });
+    }, { signal: controller.signal });
 
     const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
     rerenderPreview();
     appendMessage('assistant', resp.message || `Applied ${applied.length} change${applied.length === 1 ? '' : 's'}.`, { applied, skipped });
     if (skipped.length) console.warn('skipped patches', skipped);
   } catch (err) {
-    console.error(err);
-    appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
+    if (err.name === 'AbortError') {
+      appendMessage('assistant', 'Cancelled.');
+    } else {
+      console.error(err);
+      appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
+    }
   } finally {
     setBusy(false);
   }
@@ -703,6 +716,8 @@ async function sendScopedEdit(text) {
 // list and any slide the user explicitly referenced.
 async function sendFreeformRequest(text) {
   appendMessage('user', text);
+  const controller = new AbortController();
+  activeAbort = controller;
   setBusy(true, 'Working on your request…');
   try {
     detectAndApplyDeckTypeChange(text);
@@ -718,15 +733,19 @@ async function sendFreeformRequest(text) {
         chatHistory: getRecentChatHistory(5),
       },
       model: 'sonnet',
-    });
+    }, { signal: controller.signal });
 
     const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
     rerenderPreview();
     appendMessage('assistant', resp.message || `Applied ${applied.length} change${applied.length === 1 ? '' : 's'}.`, { applied, skipped });
     if (skipped.length) console.warn('skipped patches', skipped);
   } catch (err) {
-    console.error(err);
-    appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
+    if (err.name === 'AbortError') {
+      appendMessage('assistant', 'Cancelled.');
+    } else {
+      console.error(err);
+      appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
+    }
   } finally {
     setBusy(false);
   }
@@ -889,6 +908,10 @@ function wireChat() {
   });
   btn.addEventListener('click', sendMessage);
 
+  document.getElementById('btn-stop').addEventListener('click', () => {
+    activeAbort?.abort();
+  });
+
   document.getElementById('scope-chip-clear').addEventListener('click', clearScope);
 
   // File upload for logo customization
@@ -1000,8 +1023,10 @@ function setBusy(busy, label) {
   state.busy = busy;
   const btn = document.getElementById('btn-send');
   const ta = document.getElementById('chat-textarea');
+  const stopBtn = document.getElementById('btn-stop');
   btn.disabled = busy;
   ta.disabled = busy;
+  stopBtn.hidden = !busy;
   if (busy) {
     const log = document.getElementById('chat-log');
     const div = document.createElement('div');
@@ -1012,6 +1037,7 @@ function setBusy(busy, label) {
     log.scrollTop = log.scrollHeight;
   } else {
     document.getElementById('busy-msg')?.remove();
+    activeAbort = null;
   }
 }
 
