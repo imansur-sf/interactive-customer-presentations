@@ -733,6 +733,30 @@ async function sendFreeformRequest(text) {
 }
 
 // ------------------------------------------------------------------ Slide reference detection
+// Natural-language synonyms for the fixed template slide labels — stable synonyms
+// for each section's role, not a guess at any particular customer's content.
+const SLIDE_LABEL_ALIASES = {
+  'Hero': ['intro', 'opening', 'title slide', 'cover'],
+  'Why Now': ['urgency', 'problem statement'],
+  'The Gap': ['problem', 'pain point'],
+  'How It Works': ['solution', 'product', 'demo'],
+  'AI in Action': ['ai slide', 'automation'],
+  'Real-Time Data': ['data slide', 'live data', 'analytics'],
+  'Start Here': ['quick win', 'quick wins', 'beachhead'],
+  'Where This Goes': ['vision', 'future state'],
+  'What It Does Today': ['proof', 'results', 'case study'],
+  'The Path Forward': ['roadmap', 'timeline', 'plan'],
+  'Next Steps': ['cta', 'call to action'],
+  'Thank You': ['closing', 'wrap up', 'wrap-up', 'final slide'],
+};
+const NUMBER_WORDS = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
+const ORDINAL_WORDS = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth', 'eleventh', 'twelfth'];
+const REFERENCE_STOPWORDS = new Set([
+  'slide', 'this', 'that', 'with', 'have', 'from', 'make', 'changes', 'change',
+  'please', 'about', 'which', 'where', 'there', 'their', 'would', 'could',
+  'should', 'because', 'update', 'edit', 'instead', 'something', 'little',
+]);
+
 // Parse user message to find which slide(s) they're referring to, then
 // pull the live HTML from the iframe so the AI can see the current state.
 function extractReferencedSlides(text) {
@@ -741,40 +765,58 @@ function extractReferencedSlides(text) {
   if (!inner || !state.slides?.length) return results;
 
   const seen = new Set();
+  const lower = text.toLowerCase();
 
-  // Match "slide N" references (1-based in user language)
-  const slideNumMatches = text.match(/slide\s*(\d+)/gi);
+  const addSlide = (slide) => {
+    if (!slide || seen.has(slide.id)) return;
+    const el = inner.getElementById(slide.id);
+    results.push({ label: slide.label, html: el ? el.outerHTML : '' });
+    seen.add(slide.id);
+  };
+
+  // "slide 3" — digit references (1-based in user language)
+  const slideNumMatches = lower.match(/slide\s*(\d+)/g);
   if (slideNumMatches) {
     for (const m of slideNumMatches) {
-      const num = parseInt(m.replace(/\D/g, ''), 10) - 1; // convert to 0-based
-      const slide = state.slides[num];
-      if (slide && !seen.has(slide.id)) {
-        const el = inner.getElementById(slide.id);
-        results.push({ label: slide.label, html: el ? el.outerHTML : '' });
-        seen.add(slide.id);
-      }
+      addSlide(state.slides[parseInt(m.replace(/\D/g, ''), 10) - 1]);
     }
   }
 
-  // Match slide label names (e.g. "hero", "the gap", "why now")
-  const lower = text.toLowerCase();
+  // "slide three" / "the third slide" — number and ordinal words
+  NUMBER_WORDS.forEach((word, i) => {
+    if (new RegExp(`\\bslide\\s+${word}\\b`, 'i').test(lower)) addSlide(state.slides[i]);
+  });
+  ORDINAL_WORDS.forEach((word, i) => {
+    if (new RegExp(`\\b${word}\\s+slide\\b`, 'i').test(lower)) addSlide(state.slides[i]);
+  });
+  if (/\b(last|final)\s+slide\b/i.test(lower)) {
+    addSlide(state.slides[state.slides.length - 1]);
+  }
+
+  // Literal label text or a known synonym (e.g. "the hero slide", "the solution slide")
   for (const slide of state.slides) {
-    const labelLower = slide.label.toLowerCase();
-    if (lower.includes(labelLower) && !seen.has(slide.id)) {
-      const el = inner.getElementById(slide.id);
-      results.push({ label: slide.label, html: el ? el.outerHTML : '' });
-      seen.add(slide.id);
+    if (lower.includes(slide.label.toLowerCase())) { addSlide(slide); continue; }
+    const aliases = SLIDE_LABEL_ALIASES[slide.label] || [];
+    if (aliases.some((a) => lower.includes(a))) addSlide(slide);
+  }
+
+  // Vague references (e.g. "the pricing one") — search actual slide copy for a
+  // content word from the message that appears on exactly one slide.
+  if (results.length === 0) {
+    const words = [...new Set(lower.match(/[a-z]{4,}/g) || [])].filter((w) => !REFERENCE_STOPWORDS.has(w));
+    for (const word of words) {
+      const matches = state.slides.filter((slide) => {
+        const el = inner.getElementById(slide.id);
+        return (el?.textContent || '').toLowerCase().includes(word);
+      });
+      if (matches.length === 1) { addSlide(matches[0]); break; }
     }
   }
 
-  // Fallback: if no specific slide detected, include whichever slide is
+  // Fallback: if still nothing detected, include whichever slide is
   // currently visible in the preview (the user is probably looking at it)
   if (results.length === 0 && state.activeSlideIdx != null) {
-    const slide = state.slides[state.activeSlideIdx];
-    if (slide) {
-      const el = inner.getElementById(slide.id);
-      results.push({ label: slide.label, html: el ? el.outerHTML : '' });
-    }
+    addSlide(state.slides[state.activeSlideIdx]);
   }
 
   return results;
