@@ -15,7 +15,7 @@ Last updated: 2026-08-04. **Read this first — do not re-read prior conversatio
 
 1. **`.env.rtf`** — deleted per user sign-off (stray copy of `GEMINI_API_KEY`, not covered by `.gitignore`).
 2. **`.claude/worktrees/agent-acde1730d9909942e/`** — removed via `git worktree remove --force`, plus the leftover `worktree-agent-acde1730d9909942e` branch (`git branch -d`, no unique commits vs. main).
-3. **Stale `2.0` and original folders retired** — both deleted outright. Correction to a prior handoff's framing: they were NOT divergent/different-git-history repos — `git merge-base --is-ancestor` confirmed both were simple outdated checkouts of the exact same origin remote, just behind on pulls. The `2.0` folder had 324 lines of genuine uncommitted work (old Anthropic/BYOK-era `app.js`/`index.html`/`llm.js` changes, e.g. a `model: 'opus'` reference); backed up to `2.0-folder-uncommitted-backup.patch` in this repo's root before deletion, in case anything in it is worth salvaging. The original folder's contents were fully clean and redundant (including an odd nested duplicate clone of itself).
+3. **Stale `2.0` and original folders retired** — both deleted outright. Correction to a prior handoff's framing: they were NOT divergent/different-git-history repos — `git merge-base --is-ancestor` confirmed both were simple outdated checkouts of the exact same origin remote, just behind on pulls. The `2.0` folder had 324 lines of genuine uncommitted work (old Anthropic/BYOK-era `app.js`/`index.html`/`llm.js` changes, e.g. a `model: 'opus'` reference); backed up to `2.0-folder-uncommitted-backup.patch` before deletion in case anything was worth salvaging. Per user sign-off, that patch has since been discarded as no longer relevant — nothing was salvaged from it.
 4. **GitHub PAT rotation item** — dropped. No longer tracked; user confirmed this isn't a live concern.
 5. **GitHub Pages redeploy verification item** — removed. GitHub Pages isn't part of this project's deployment path at all (see "Where we are" above), so there's nothing to verify here.
 6. **`state.interviewActive` never clears** — fixed. `app.js`'s `onComplete` callback (in `startInterview()`) now sets `state.interviewActive = false;` alongside `state.answers`/`state.meetingNotes`. Was dead/unused state with zero live effect before the fix — purely a latent-trap cleanup, not a behavior change.
@@ -52,7 +52,6 @@ Local backend-capable dev server: `node server.js` with `GEMINI_API_KEY` set (se
 ## Open items carried forward
 
 1. **Testing-methodology note**: `preview_click` has intermittently reported success on a target with zero observable effect in past sessions (suspected coordinate/overlap issue). This is a caution about the Browser preview MCP tool itself, not an app-code bug — no specific reproducible element was ever pinned down. Workaround if it recurs: `preview_eval` with `document.getElementById(...).click()`.
-2. **`2.0-folder-uncommitted-backup.patch`** sits untracked in this repo's root — a backup of uncommitted work from the now-deleted `2.0` folder (see Resolved findings #3). Decide whether to keep it committed for reference, move it elsewhere, or discard it now that the folder itself is gone.
 
 ## What to do next session
 
