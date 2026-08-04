@@ -530,7 +530,12 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
       '- Hero: leading_statement as the big H1. Accent-colored eyebrow with industry tags. KPI stat-cards from hero_kpis (value + unit + label + framing).',
       '- Why Now: why_now_pressure (external force) + why_now_cost (cost of delay).',
       '- The Gap: gap_today (left column, pain points) vs gap_tomorrow (right column, outcomes).',
-      '- How It Works: stack layers from stack_sf products + stack_customer systems. Customer systems at foundation layers.',
+      '- How It Works: this slide is a FIXED 4-node pipeline diagram (nodes #s4-n1 → #s4-n2 → #s4-n3 → #s4-n4, connected by 3 labeled connectors #s4-c1 → #s4-c2 → #s4-c3). Do not add/remove nodes or connectors — only replace their content.',
+      '  * Nodes 1-2 (or just node 1 if stack_customer is empty): the customer\'s own current-state systems, from stack_customer (e.g. their CDP, data warehouse, legacy tools). If stack_customer is empty, node 1 should represent the customer\'s org/team itself.',
+      '  * Remaining nodes: the customer\'s selected Salesforce products, from stack_sf, in a logical order ending on whichever product plays the export/activation role for this customer (e.g. Data Cloud, MuleSoft, or the relevant Cloud).',
+      '  * Each node\'s .arch-name = the system/product name, .arch-sub = a short role descriptor, .arch-desc = one sentence on what that system does in THIS customer\'s flow, .arch-tag = a short category label.',
+      '  * Each connector\'s .arch-conn-lbl = the SPECIFIC, real data/integration mechanism moving data between the two nodes it connects (e.g. "Real-time API", "Batch Sync", "Streaming Ingest") — never the placeholder labels "Journey JSON"/"Stack Config"/"Export".',
+      '  * CRITICAL: every node (.arch-node-card) and connector (.arch-conn, .arch-pkt) element has an inline style="..." attribute with CSS custom properties (--arch-glow, --conn-grad, --conn-tip, --pkt-color). You MUST preserve these style attributes verbatim in your patch — only change the text content inside.',
       '- AI in Action: personalized to the customer\'s primary use case.',
       '- Real-Time Data: personalized data-flow narrative for this customer.',
       '- Start Here: beachhead use cases from the beachheads array (title, before, after, ttv for each).',
@@ -618,7 +623,7 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
         '',
         '- If "AI in Action" is selected: personalize the AI in Action slide with the customer\'s primary use case, showing a typewriter chat simulation and journey stream. Make the chat messages specific to the customer\'s workflow.',
         '- If "Data Pipeline" is selected: personalize the Real-Time Data slide showing how the customer\'s data flows through Data Cloud. Use their actual systems and data sources.',
-        '- If "Architecture Diagram" is selected: personalize the How It Works slide as a layered architecture diagram showing the customer\'s actual systems connected through Salesforce with Data Cloud as the central hub. Show current-state systems at the edges and Salesforce products in the middle, with data flows between them.',
+        '- If "Architecture Diagram" is selected: enable the flowing packet-dot animation along the How It Works connectors (the node/connector content itself is already personalized per the How It Works instructions above, regardless of this toggle).',
         '- If "CountUp Hero KPIs" is selected: ensure hero KPI values are clean integers or numbers (no text prefixes) so the countUp animation can animate them from 0 to the target value.',
         '',
         'For the animated slides, ensure the content is SPECIFIC to the customer — use their actual systems, products, industry data, and use cases. Generic placeholder content defeats the purpose of these slides.',
@@ -702,9 +707,13 @@ export function applyPatches(deckDoc, patches) {
       // If the AI emitted raw CSS rules (:root, @media, selector{…})
       // as visible HTML, skip the patch to prevent CSS text rendering
       // on slides. applyBrandColors() handles all colors programmatically.
+      // Inline style="..." attributes are legitimate (e.g. the architecture
+      // diagram's --arch-glow/--conn-tip custom props) so they're stripped
+      // before the check — only leaked CSS in actual content should trip it.
       if (op === 'replace' && typeof p.new_html === 'string') {
+        const htmlForLeakCheck = p.new_html.replace(/\sstyle\s*=\s*(".*?"|'.*?')/gis, '');
         const cssLeakRx = /(:root\s*\{|--[\w-]+\s*:\s*#|@media\s*\(|[.#][\w-]+\s*\{[^}]*\})/;
-        if (cssLeakRx.test(p.new_html)) {
+        if (cssLeakRx.test(htmlForLeakCheck)) {
           skipped.push({ patch: p, reason: 'css_leak_blocked' });
           continue;
         }

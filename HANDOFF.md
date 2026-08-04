@@ -1,16 +1,23 @@
 # ICP Session Handoff (3.0)
 
-Last updated: 2026-08-03. **Read this first — do not re-read prior conversation summaries.**
+Last updated: 2026-08-04. **Read this first — do not re-read prior conversation summaries.** For a detailed history of completed work, see [PROGRESS.md](PROGRESS.md); this file is only current state + what's left.
 
 ## Where we are
 
 - **Working directory**: `/Users/imansur/claude/interactive-customer-presentations 3.0` (fresh clone of `imansur-sf/interactive-customer-presentations`).
 - **Branch**: `main`.
-- **Latest commit**: `8f78aff` — "Fix contrast issues, brand-color-safe chat text, and ambiguous slide-ref handling" — **pushed to `origin/main`**. Nothing local is ahead of origin.
+- **Latest commit**: includes the CSS-leak-guard fix + "How It Works" prompt rewrite, live-verified this session (full details in `PROGRESS.md`'s 2026-08-04 entry). Check `git log -1` for the exact hash — **not yet confirmed pushed**; ask before pushing per standing directive #3 below unless the user's message that turn is itself an explicit push instruction.
 - The `2.0` folder and the original `/Users/imansur/claude/interactive-customer-presentations` folder are **STALE** (older BYOK/Anthropic-era architecture, different git history). Do NOT work in them.
-- The stale folder's `.claude/launch.json` was retargeted in a prior session to serve the `3.0` folder for browser verification. If the next session's CWD is the stale folder, `preview_start` will still serve the correct code — but verify before trusting it.
+- All 21 previously-tracked tasks are complete. No known bugs are pending.
 
-## Architecture (CURRENT — do not rely on old HANDOFF.md architecture section)
+## ⚠️ Unresolved findings — need explicit user decision before touching
+
+1. **`.env.rtf`** — untracked, ~561 bytes, RTF format, sitting in the repo root next to the legitimate `.env`. Almost certainly a stray copy of `GEMINI_API_KEY`. **Not covered by `.gitignore`** (which only lists `.env`/`.env.local`, no wildcard). Do not stage, commit, delete, or display its contents without explicit user sign-off — this survives any future "commit everything" instruction; that phrase should be read as "commit the legitimate feature work," not `git add -A`.
+2. **`.claude/worktrees/agent-acde1730d9909942e/`** — an orphaned git worktree (own `.git`, full app copy, ~8.5MB), untracked, left over from an unrelated prior agent run. Not urgent, just repo-hygiene clutter. Safe to `git worktree remove` or delete once confirmed unneeded — but get sign-off first.
+
+Neither has been touched.
+
+## Architecture (current)
 
 ```
 Browser
@@ -24,72 +31,44 @@ Browser
                      /imranAI/track → decktools-tracker.mtoolin.workers.dev/track
 ```
 
+Local backend-capable dev server: `node server.js` with `GEMINI_API_KEY` set (see `.claude/launch.json` → `icp-local-gemini`). The plain `npx serve` config (`icp`) is static-only and 404s on `/api/llm*`.
+
 ## Standing directives (still in force)
 
 1. **Chunked reads only.** `index.html`, `app.js`, `llm.js`, `interview.js`, `server.js` are all large. Use `Read` with `offset`/`limit`, or delegate to an `Explore` subagent. Do NOT slurp whole files.
 2. **Use subagents** (Explore, general-purpose) for cross-file exploration.
-3. **ASK before pushing** to `imansur-sf/interactive-customer-presentations`, unless the user's message that turn is itself an explicit push instruction (as happened this session).
+3. **ASK before pushing** to `imansur-sf/interactive-customer-presentations`, unless the user's message that turn is itself an explicit push instruction.
 4. **Terminal command formatting**: one runnable command per fenced ```bash block; commentary outside the fence.
 5. **Do NOT rename `Decktools`/`decktools` references outside `worker/`.** Attribution to Miles Toolin's external `sf-decktools` Claude skill. External tracker URL `decktools-tracker.mtoolin.workers.dev` is preserved as-is.
-6. **No secrets in committed source.** `GEMINI_API_KEY` lives in Heroku env only.
+6. **No secrets in committed source.** `GEMINI_API_KEY` lives in Heroku env only (see the `.env.rtf` finding above — this directive is why it matters).
 7. **TaskCreate for 3+ step work** (from global CLAUDE.md).
 8. **Prefer `rg`/`fd`/`sd`/`bat`/`jq`** over `grep`/`find`/`sed`/`cat` (from global CLAUDE.md).
 9. **Browser verification must exclusively use `preview_*` tools** — never Bash or other browser automation.
 
-## Just shipped (this session) — commit `8f78aff`, pushed
+## Open items carried forward
 
-Executed a 3-phase plan (approved via plan mode) that closed out the contrast and accent-color risk items flagged as open in the previous handoff, plus added a new clarification flow:
-
-1. **Phase 1 — Contrast fixes in `skill-context/sf-composer.html` + `assets/components.css`.** Fixed the four items previously documented-but-deferred: `.arch-tag`/`.bc-badge`/`.phase-badge` (brand-color-on-tint-of-self badges), the recurring `rgba(255,255,255,0.35)` navy caption pattern, and the `.c-arrow` decorative arrows on "Next Steps". All now clear WCAG AA (verified with `preview_inspect` computed contrast, not source-level guesses).
-2. **Phase 2 — Chat bubble text is now brand-color-safe.** `.chat-msg.user` in `assets/animation-interactions.css` no longer hardcodes `color: #fff`; it reads `var(--chat-user-fg, #fff)`. `applyBrandColors()` in `app.js` now sets `--chat-user-fg` via the existing `contrastColor(hex)` helper right after it sets `--sf-blue` from the customer's chosen accent — so a pale customer accent color can no longer wash out the chat text. `.chat-bot-label` was checked and confirmed **not** at risk (its color var is never touched by `applyBrandColors`).
-3. **Phase 3 — Ambiguous slide-reference clarification flow (new capability, not just a fix).** `extractReferencedSlides()` (`app.js`) now returns `{ slides, ambiguousLabels }` instead of a bare array — when a vague keyword matches more than one slide, it's surfaced instead of silently falling back to "whichever slide is on screen." `sendFreeformRequest` checks this: if ambiguous, it asks a clarifying question in-chat ("Did you mean the X or the Y slide?") and stores `state.pendingSlideClarification = { candidates, originalText }` instead of calling the LLM. `resolvePendingSlideClarification` (new function) handles the user's next message: if it resolves against a candidate (by label or alias), it re-issues the **original** stored request against the resolved slide; if not, it falls through to treating the reply as a brand-new freeform request.
-4. **Bug found and fixed during Phase 3 verification**: `resolvePendingSlideClarification` was calling `appendMessage('user', replyText)` unconditionally, then falling through to `sendFreeformRequest(replyText)` in the unresolved case — which appends the same message again. Result: an unrelated reply to a clarifying question showed up as two identical "YOU" chat bubbles. Fixed by moving the `appendMessage` call inside the `if (resolved)` branch only, so the unresolved path relies solely on `sendFreeformRequest`'s own append.
-
-All of the above was verified **live in the browser via real chat UI interaction** (`preview_fill`/`preview_click`, not `preview_eval` simulation) — including a fetch-monkeypatch technique to inspect outgoing `/api/llm-stream` POST payloads, since `app.js`'s top-level `state` isn't reachable from `preview_eval` (it's an ES module, not global). Confirmed: ambiguity correctly short-circuits the LLM call, a valid disambiguating reply resolves to the correct slide and reuses the original request text, and an unrelated reply falls through cleanly without duplication.
-
-## Resolved from the previous handoff's open-items list
-
-- ~~"How It Works" architecture-diagram badges below AA~~ — fixed (Phase 1).
-- ~~Recurring `rgba(255,255,255,0.35)` navy caption pattern~~ — fixed (Phase 1).
-- ~~"Start Here"/"The Path Forward" badges~~ — fixed (Phase 1).
-- ~~"Next Steps" decorative arrows~~ — fixed (Phase 1), even though arguably decorative — cheap and no downside.
-- ~~`.chat-msg.user`/`.chat-bot-label` not contrast-checked against customer-chosen accent colors~~ — fixed (Phase 2). `.chat-bot-label` turned out not to be at risk at all.
-- ~~Vague keyword matching >1 slide silently guesses~~ — replaced with an actual clarifying-question mechanism (Phase 3), not just documented as a known limitation anymore.
-- ~~Push the pending commits~~ — done, `8f78aff` is on `origin/main`.
-
-## Open items carried forward (not touched this session)
-
-- **Rotate any GitHub PAT exposed in earlier sessions** — flagged in at least two prior handoffs, status still unconfirmed. Keep raising this until explicitly resolved.
-- **Verify GitHub Pages redeploy** picks up commit `8f78aff` — typically ~30s after push, not independently confirmed this session.
-- **Retire the stale `2.0` folder and the original folder** once confident `3.0` is the definitive source of truth — still not done, still optional.
-- **`state.interviewActive` never clears** (`interview.js` sets it `true` on start, `onComplete` never clears it) — not load-bearing, low-priority cleanup, unchanged from before.
-- **Suspect model ID**: `server.js:23` — `IMAGE_GEN_MODEL = 'gemini-3.1-flash-image'`. Still unverified as a live model name.
-- **Unresolved thread from earlier in this session, status unknown**: a background-subagent investigation into a "0 of 14 personalization patches applied" bug in `applyPatches` (`llm.js`) was reportedly running independently and was explicitly *not* folded into the 3-phase plan (different code path). No findings or fix from that investigation appear in this session's final work. **Check whether that investigation actually concluded** before assuming it's still open — it may have been resolved and just not reflected here, or it may never have finished.
-- **Local dev testing caveat, unchanged**: `npx serve` (per `.claude/launch.json`) is a static file host with no `/api/llm*` backend. POSTs to `/api/llm-stream` return a generic 404 HTML page in this environment, and the app's error-display path (`⚠️ ${err.userMessage || err.message}`) renders that raw HTML as the assistant's error text — cosmetically bad but not a real app bug, just a symptom of no backend being wired into the static preview. To exercise the real LLM path locally, run `node server.js` with `GEMINI_API_KEY` set.
-- **Testing-methodology note, unchanged**: `preview_click` has intermittently reported success on a target with zero observable effect in past sessions (suspected coordinate/overlap issue). Workaround if it recurs: `preview_eval` with `document.getElementById(...).click()`. Not observed as a problem this session (`#btn-send` clicks all worked normally).
-
-## Key files (post-commit state)
-
-- **`app.js`** —
-  - `extractReferencedSlides()` (~L783-844 pre-session, now returns `{ slides, ambiguousLabels }`) — 6-tier matcher: digit → number/ordinal word → "last/final slide" → literal label/alias → vague-keyword (ambiguous if the word matches >1 slide) → fallback to currently-viewed slide.
-  - `sendFreeformRequest()` (~L719-754 pre-session) — now branches on `ambiguousLabels`; if non-empty, appends a clarifying question and sets `state.pendingSlideClarification` instead of calling the LLM.
-  - `resolvePendingSlideClarification()` (new function) — resolves the next user message against pending candidates, or falls through to `sendFreeformRequest`.
-  - `sendMessage()` (~L961-973 pre-session) — now checks `state.pendingSlideClarification` first, before normal routing.
-  - `applyBrandColors()` (~L344-376 pre-session) — now also sets `--chat-user-fg` via `contrastColor()` right after setting `--sf-blue`.
-  - `contrastColor(hex)` (~L1343-1351 pre-session) — existing helper, reused as-is (no changes), same luminance-based `#fff`/`#0B0930` logic already used for `--accent-fg`/`--accent-secondary-fg`.
-- **`assets/animation-interactions.css`** — `.chat-msg.user` (~L44-49) — `color` now `var(--chat-user-fg, #fff)` instead of hardcoded `#fff`.
-- **`assets/components.css`** — `.arch-tag`/`.bc-badge`/`.phase-badge`/`.c-arrow`/`.proof-source` contrast values adjusted (Phase 1).
-- **`skill-context/sf-composer.html`** — navy caption opacity and badge color/opacity adjustments (Phase 1); loaded at runtime via `fetch()` by `llm.js:loadSkillContext`, so this is live content, not just a design reference.
-- **`server.js`** — Express + Gemini. Unchanged this session. `GEMINI_API_KEY` @ L17, tier map @ L27-35, SSE @ L362, static server + SPA fallback @ L576/L582.
-- **`llm.js`** — Unchanged this session. Turn types: `suggest`, `freeform`, `edit`, `generate`, `progressive`, `finalize`, default. `callLLM` routes to SSE for heavy turns (incl. `freeform`), with `AbortController` support. `buildTurnPrompt` composes `userMessage`/`deckContext` into a single `prompt` string — they are **not** top-level POST fields, which matters if you're inspecting outgoing payloads directly.
-- **`interview.js`** — `InterviewController`. Unchanged this session.
-- **`worker/worker.js`** — analytics-only. Unchanged this session.
+1. **`.env.rtf` and orphaned worktree sign-off** — see flagged section above.
+2. **Rotate any GitHub PAT exposed in earlier sessions** — flagged in at least two prior handoffs, status still unconfirmed. Keep raising this until explicitly resolved.
+3. **Verify GitHub Pages redeploy** picks up the latest pushed commit — typically ~30s after push, not independently confirmed recently.
+4. **Retire the stale `2.0` folder and the original folder** once confident `3.0` is the definitive source of truth — still not done, still optional.
+5. **`state.interviewActive` never clears** (`interview.js` sets it `true` on start, `onComplete` never clears it) — not load-bearing, low-priority cleanup.
+6. **Suspect model ID**: `server.js` — `IMAGE_GEN_MODEL = 'gemini-3.1-flash-image'`. Still unverified as a live model name.
+7. **Testing-methodology note**: `preview_click` has intermittently reported success on a target with zero observable effect in past sessions (suspected coordinate/overlap issue). Workaround if it recurs: `preview_eval` with `document.getElementById(...).click()`.
 
 ## What to do next session
 
-No known bugs pending from this session's work — all three plan phases are shipped, verified live, and pushed. Suggested priorities, roughly in order:
-
-1. Check on the "0 of 14 personalization patches" investigation thread (see open items above) — resolve ambiguity about whether it's done, abandoned, or still needs a fix.
-2. Confirm GitHub Pages redeploy picked up `8f78aff`.
+1. Get a decision on `.env.rtf` and the orphaned worktree (item 1 above) — raise this before doing anything else that touches git state.
+2. Confirm GitHub Pages redeploy picked up the latest commit.
 3. Rotate the previously-flagged GitHub PAT if that still hasn't happened.
-4. Decide whether to retire the stale `2.0`/original folders now that `3.0` has a clean, fully-pushed history.
+4. Decide whether to retire the stale `2.0`/original folders.
+5. No known bugs are pending from prior work — treat new sessions as fresh feature/polish requests unless a new bug report comes in. If one does and the reason string is `css_leak_blocked` or `slide_element_protected`, re-check `llm.js`'s guard chain first since those are the two guards with known false-positive history.
+
+## Key files
+
+- **`app.js`** — `appendErrorWithRetry`, `generateDeck`/`regenerateForDeckType` retry wiring, `extractReferencedSlides`/`sendFreeformRequest`/`resolvePendingSlideClarification` (ambiguous-slide clarification), `applyBrandColors`/`contrastColor` (brand-color-safe chat text).
+- **`llm.js`** — `buildTurnPrompt` (all per-slide generation guidance, including the "How It Works" 4-node/3-connector mapping rule), `applyPatches` (guard chain: `slide_not_found` → `selector_no_match` → `cobrand_logo_protected` → `css_leak_blocked` → `slide_element_protected` → `root_element_protected` → `kpi_layout_protected` → `hero_structure_protected` → more).
+- **`index.html`** — `.btn-retry` CSS block; too large to slurp, use chunked reads.
+- **`server.js`** — Express + Gemini routes, tier map, SSE handler, `process.on('uncaughtException'|'unhandledRejection', ...)` crash logging, static/SPA fallback.
+- **`interview.js`** — `InterviewController`, `stack_sf`/`stack_customer` question definitions.
+- **`worker/worker.js`** — analytics-only, unchanged across recent sessions.
+- **`.claude/launch.json`** — `icp-local-gemini` runs `node server.js` with `.env` sourced, for any live-LLM verification; `icp` remains static-only.
