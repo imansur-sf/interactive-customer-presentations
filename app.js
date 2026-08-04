@@ -203,6 +203,7 @@ async function startInterview() {
     container: log,
     appendMessage,
     onComplete: async (answers, meetingNotes) => {
+      state.interviewActive = false;
       state.answers = answers;
       state.meetingNotes = meetingNotes || '';
       await generateDeck(answers);

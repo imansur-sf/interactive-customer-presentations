@@ -539,12 +539,14 @@ app.post('/api/generate-images', async (req, res) => {
 });
 
 // Shared image generation helper
+// Uses the Interactions API (generateContent + responseModalities is legacy for this model family).
 async function generateImage(prompt) {
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${IMAGE_GEN_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+  const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 
   const geminiBody = {
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { responseModalities: ['IMAGE'] }
+    model: IMAGE_GEN_MODEL,
+    input: [{ type: 'text', text: prompt }],
+    response_format: { type: 'image', mime_type: 'image/jpeg' }
   };
 
   const controller = new AbortController();
@@ -552,7 +554,7 @@ async function generateImage(prompt) {
 
   const upstream = await fetch(geminiUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
     body: JSON.stringify(geminiBody),
     signal: controller.signal
   });
@@ -564,15 +566,17 @@ async function generateImage(prompt) {
   }
 
   const data = await upstream.json();
-  const parts = data?.candidates?.[0]?.content?.parts || [];
-  const imagePart = parts.find(p => p.inlineData);
+  const steps = data?.steps || [];
+  const imageBlock = steps
+    .flatMap(s => s?.content || [])
+    .find(block => block?.type === 'image');
 
-  if (!imagePart) {
+  if (!imageBlock) {
     throw new Error('No image in Gemini response');
   }
 
-  const mime = imagePart.inlineData.mimeType || 'image/jpeg';
-  const imageData = `data:${mime};base64,${imagePart.inlineData.data}`;
+  const mime = imageBlock.mime_type || 'image/jpeg';
+  const imageData = `data:${mime};base64,${imageBlock.data}`;
 
   return { imageData };
 }
