@@ -569,6 +569,7 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
       '  HERO STRUCTURE: Do NOT replace the `.hero`, `.hero-inner`, or `.hero-kpi` containers. Use narrow selectors to update children: `.hero h1`, `.hero-sub`, `.hero-quote p`, `.hero-quote cite`, `.hero-eyebrow`, `.hkc-val`, `.hkc-label`.',
       '  HERO KPI CARDS: The .hero-kpi-card elements sit on dark backgrounds. Do NOT add inline color styles to .hkc-val or .hkc-label — the CSS defaults are white text. Only modify the text CONTENT (value, unit, label), never the color styling.',
       '  COBRAND PILL: Do NOT touch the `.cobrand-pill` element — it is managed programmatically.',
+      '  SCRIPT TAGS: Never emit a patch that targets a `<script>` element or includes `<script>` in new_html. The wiring scripts (nav, animation) are static plumbing — you have no legitimate reason to touch them.',
       '',
       'COPY RULES:',
       '- ALL copy must be specific to the customer name, industry, and use cases. No generic placeholders.',
@@ -652,6 +653,7 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
       '- Do NOT restructure the `.hero-kpi` container — keep the existing card layout intact.',
       '- Do NOT replace entire slide-level containers or change overall slide structure.',
       '- COBRAND PILL: Do NOT touch the `.cobrand-pill` element — it is managed programmatically.',
+      '- SCRIPT TAGS: Never emit a patch that targets a `<script>` element or includes `<script>` in new_html.',
     ].join('\n');
   } else if (turn === 'finalize') {
     userPrompt = [
@@ -694,6 +696,20 @@ export function applyPatches(deckDoc, patches) {
       if (!target) { skipped.push({ patch: p, reason: 'selector_no_match' }); continue; }
 
       const op = p.op || 'replace';
+
+      // ── Script-tag guard ─────────────────────────────────────────
+      // Never let AI patches target a <script> element or introduce a new
+      // one. The deck's wiring scripts (nav, animation IIFEs) are static
+      // plumbing unrelated to customer content — the AI has no legitimate
+      // reason to touch or add them.
+      if ((target.tagName || '').toUpperCase() === 'SCRIPT') {
+        skipped.push({ patch: p, reason: 'script_tag_protected' });
+        continue;
+      }
+      if (op === 'replace' && typeof p.new_html === 'string' && /<script[\s>]/i.test(p.new_html)) {
+        skipped.push({ patch: p, reason: 'script_tag_protected' });
+        continue;
+      }
 
       // ── Cobrand-pill logo guard ─────────────────────────────────
       // Never let AI patches modify the Salesforce logo in the cobrand pill.

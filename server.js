@@ -35,7 +35,7 @@ const MAX_IMAGE_GEN_BATCH = 12;
 // IMPORTANT: Verify these models are available for your key before deploying.
 // List models: curl "https://generativelanguage.googleapis.com/v1beta/models?key=$KEY"
 const TIER_MODELS = {
-  fast: 'gemini-3.5-flash-lite',
+  fast: 'gemini-3.1-flash-lite',
   balanced: 'gemini-3.5-flash',
   powerful: 'gemini-2.5-pro'
 };
@@ -433,7 +433,7 @@ app.post('/api/llm-stream', async (req, res) => {
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 240_000); // 4 min — deck gen can be slow
+    const timeout = setTimeout(() => controller.abort(), 330_000); // 5.5 min — deck gen can be slow, heartbeat keeps Heroku's connection alive
 
     const upstream = await fetch(geminiUrl, {
       method: 'POST',

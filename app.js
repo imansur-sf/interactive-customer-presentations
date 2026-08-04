@@ -1038,6 +1038,7 @@ const PATCH_SKIP_REASONS = {
   kpi_layout_protected: 'blocked — KPI layout is protected',
   hero_structure_protected: 'blocked — hero layout is protected',
   cobrand_protected: 'blocked — cobrand pill is protected',
+  script_tag_protected: 'blocked — cannot touch wiring scripts',
   attr_op_missing_suffix: 'malformed attribute patch',
   style_op_missing_suffix: 'malformed style patch',
 };
