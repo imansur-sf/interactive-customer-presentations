@@ -7,13 +7,17 @@ Last updated: 2026-08-04. **Read this first — do not re-read prior conversatio
 - **Working directory**: `/Users/imansur/claude/interactive-customer-presentations 3.0` (fresh clone of `imansur-sf/interactive-customer-presentations`).
 - **Branch**: `main`.
 - **Latest commit**: `4dd48b0` — "Fix CSS-leak guard false positive and personalize How It Works slide" (full details in `PROGRESS.md`'s 2026-08-04 entry). **Not yet pushed** — ask before pushing per standing directive #3 below unless the user's message that turn is itself an explicit push instruction.
-- The `2.0` folder and the original `/Users/imansur/claude/interactive-customer-presentations` folder are **STALE** (older BYOK/Anthropic-era architecture, different git history). Do NOT work in them.
+- The `2.0` folder and the original `/Users/imansur/claude/interactive-customer-presentations` folder have been **retired** (removed entirely) — see Resolved findings below. `3.0` is the sole working copy.
+- **Deployment**: Heroku is the actual UI/runtime layer for this app (and this app's family of projects). GitHub Pages is NOT used for ICP — it's only relevant to a separate, unrelated "Sassy Solutions website" project. Don't conflate the two.
 - All 21 previously-tracked tasks are complete. No known bugs are pending.
 
 ## Resolved findings (2026-08-04)
 
 1. **`.env.rtf`** — deleted per user sign-off (stray copy of `GEMINI_API_KEY`, not covered by `.gitignore`).
 2. **`.claude/worktrees/agent-acde1730d9909942e/`** — removed via `git worktree remove --force`, plus the leftover `worktree-agent-acde1730d9909942e` branch (`git branch -d`, no unique commits vs. main).
+3. **Stale `2.0` and original folders retired** — both deleted outright. Correction to a prior handoff's framing: they were NOT divergent/different-git-history repos — `git merge-base --is-ancestor` confirmed both were simple outdated checkouts of the exact same origin remote, just behind on pulls. The `2.0` folder had 324 lines of genuine uncommitted work (old Anthropic/BYOK-era `app.js`/`index.html`/`llm.js` changes, e.g. a `model: 'opus'` reference); backed up to `2.0-folder-uncommitted-backup.patch` in this repo's root before deletion, in case anything in it is worth salvaging. The original folder's contents were fully clean and redundant (including an odd nested duplicate clone of itself).
+4. **GitHub PAT rotation item** — dropped. No longer tracked; user confirmed this isn't a live concern.
+5. **GitHub Pages redeploy verification item** — removed. GitHub Pages isn't part of this project's deployment path at all (see "Where we are" above), so there's nothing to verify here.
 
 ## Architecture (current)
 
@@ -45,19 +49,13 @@ Local backend-capable dev server: `node server.js` with `GEMINI_API_KEY` set (se
 
 ## Open items carried forward
 
-1. **Rotate any GitHub PAT exposed in earlier sessions** — flagged in at least two prior handoffs, status still unconfirmed. Keep raising this until explicitly resolved.
-2. **Verify GitHub Pages redeploy** picks up the latest pushed commit — typically ~30s after push, not independently confirmed recently.
-3. **Retire the stale `2.0` folder and the original folder** once confident `3.0` is the definitive source of truth — still not done, still optional.
-4. **`state.interviewActive` never clears** (`interview.js` sets it `true` on start, `onComplete` never clears it) — not load-bearing, low-priority cleanup.
-5. **Suspect model ID**: `server.js` — `IMAGE_GEN_MODEL = 'gemini-3.1-flash-image'`. Still unverified as a live model name.
-6. **Testing-methodology note**: `preview_click` has intermittently reported success on a target with zero observable effect in past sessions (suspected coordinate/overlap issue). Workaround if it recurs: `preview_eval` with `document.getElementById(...).click()`.
+1. **`state.interviewActive` never clears** — correction: lives entirely in `app.js`, not `interview.js` (prior handoff mis-attributed this). `app.js` sets it `true` in `startInterview()`; the `onComplete` callback never sets it back to `false`. Confirmed dead/unused elsewhere in the codebase — nothing reads this flag today, so it's a latent future-developer trap, not a live bug. Fix: set `state.interviewActive = false;` inside `onComplete` in `app.js`.
+2. **Suspect model ID**: `server.js` — `IMAGE_GEN_MODEL = 'gemini-3.1-flash-image'`. The model ID string itself is verified legitimate per Google's current docs (not a typo/hallucination). The real risk is the call *shape*: `server.js` uses the classic `:generateContent` + `generationConfig.responseModalities: ['IMAGE']` REST pattern, which current Gemini docs suggest may be superseded by a newer "Interactions API" pattern for this model family. Confirmed via exhaustive grep that `/api/generate-images` has zero frontend callers — currently dead/unreachable code, so any shape mismatch has zero live impact today.
+3. **Testing-methodology note**: `preview_click` has intermittently reported success on a target with zero observable effect in past sessions (suspected coordinate/overlap issue). This is a caution about the Browser preview MCP tool itself, not an app-code bug — no specific reproducible element was ever pinned down. Workaround if it recurs: `preview_eval` with `document.getElementById(...).click()`.
 
 ## What to do next session
 
-1. Confirm GitHub Pages redeploy picked up the latest commit.
-2. Rotate the previously-flagged GitHub PAT if that still hasn't happened.
-3. Decide whether to retire the stale `2.0`/original folders.
-4. No known bugs are pending from prior work — treat new sessions as fresh feature/polish requests unless a new bug report comes in. If one does and the reason string is `css_leak_blocked` or `slide_element_protected`, re-check `llm.js`'s guard chain first since those are the two guards with known false-positive history.
+1. No known bugs are pending from prior work — treat new sessions as fresh feature/polish requests unless a new bug report comes in. If one does and the reason string is `css_leak_blocked` or `slide_element_protected`, re-check `llm.js`'s guard chain first since those are the two guards with known false-positive history.
 
 ## Key files
 
