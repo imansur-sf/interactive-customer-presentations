@@ -10,12 +10,10 @@ Last updated: 2026-08-04. **Read this first — do not re-read prior conversatio
 - The `2.0` folder and the original `/Users/imansur/claude/interactive-customer-presentations` folder are **STALE** (older BYOK/Anthropic-era architecture, different git history). Do NOT work in them.
 - All 21 previously-tracked tasks are complete. No known bugs are pending.
 
-## ⚠️ Unresolved findings — need explicit user decision before touching
+## Resolved findings (2026-08-04)
 
-1. **`.env.rtf`** — untracked, ~561 bytes, RTF format, sitting in the repo root next to the legitimate `.env`. Almost certainly a stray copy of `GEMINI_API_KEY`. **Not covered by `.gitignore`** (which only lists `.env`/`.env.local`, no wildcard). Do not stage, commit, delete, or display its contents without explicit user sign-off — this survives any future "commit everything" instruction; that phrase should be read as "commit the legitimate feature work," not `git add -A`.
-2. **`.claude/worktrees/agent-acde1730d9909942e/`** — an orphaned git worktree (own `.git`, full app copy, ~8.5MB), untracked, left over from an unrelated prior agent run. Not urgent, just repo-hygiene clutter. Safe to `git worktree remove` or delete once confirmed unneeded — but get sign-off first.
-
-Neither has been touched.
+1. **`.env.rtf`** — deleted per user sign-off (stray copy of `GEMINI_API_KEY`, not covered by `.gitignore`).
+2. **`.claude/worktrees/agent-acde1730d9909942e/`** — removed via `git worktree remove --force`, plus the leftover `worktree-agent-acde1730d9909942e` branch (`git branch -d`, no unique commits vs. main).
 
 ## Architecture (current)
 
@@ -47,21 +45,19 @@ Local backend-capable dev server: `node server.js` with `GEMINI_API_KEY` set (se
 
 ## Open items carried forward
 
-1. **`.env.rtf` and orphaned worktree sign-off** — see flagged section above.
-2. **Rotate any GitHub PAT exposed in earlier sessions** — flagged in at least two prior handoffs, status still unconfirmed. Keep raising this until explicitly resolved.
-3. **Verify GitHub Pages redeploy** picks up the latest pushed commit — typically ~30s after push, not independently confirmed recently.
-4. **Retire the stale `2.0` folder and the original folder** once confident `3.0` is the definitive source of truth — still not done, still optional.
-5. **`state.interviewActive` never clears** (`interview.js` sets it `true` on start, `onComplete` never clears it) — not load-bearing, low-priority cleanup.
-6. **Suspect model ID**: `server.js` — `IMAGE_GEN_MODEL = 'gemini-3.1-flash-image'`. Still unverified as a live model name.
-7. **Testing-methodology note**: `preview_click` has intermittently reported success on a target with zero observable effect in past sessions (suspected coordinate/overlap issue). Workaround if it recurs: `preview_eval` with `document.getElementById(...).click()`.
+1. **Rotate any GitHub PAT exposed in earlier sessions** — flagged in at least two prior handoffs, status still unconfirmed. Keep raising this until explicitly resolved.
+2. **Verify GitHub Pages redeploy** picks up the latest pushed commit — typically ~30s after push, not independently confirmed recently.
+3. **Retire the stale `2.0` folder and the original folder** once confident `3.0` is the definitive source of truth — still not done, still optional.
+4. **`state.interviewActive` never clears** (`interview.js` sets it `true` on start, `onComplete` never clears it) — not load-bearing, low-priority cleanup.
+5. **Suspect model ID**: `server.js` — `IMAGE_GEN_MODEL = 'gemini-3.1-flash-image'`. Still unverified as a live model name.
+6. **Testing-methodology note**: `preview_click` has intermittently reported success on a target with zero observable effect in past sessions (suspected coordinate/overlap issue). Workaround if it recurs: `preview_eval` with `document.getElementById(...).click()`.
 
 ## What to do next session
 
-1. Get a decision on `.env.rtf` and the orphaned worktree (item 1 above) — raise this before doing anything else that touches git state.
-2. Confirm GitHub Pages redeploy picked up the latest commit.
-3. Rotate the previously-flagged GitHub PAT if that still hasn't happened.
-4. Decide whether to retire the stale `2.0`/original folders.
-5. No known bugs are pending from prior work — treat new sessions as fresh feature/polish requests unless a new bug report comes in. If one does and the reason string is `css_leak_blocked` or `slide_element_protected`, re-check `llm.js`'s guard chain first since those are the two guards with known false-positive history.
+1. Confirm GitHub Pages redeploy picked up the latest commit.
+2. Rotate the previously-flagged GitHub PAT if that still hasn't happened.
+3. Decide whether to retire the stale `2.0`/original folders.
+4. No known bugs are pending from prior work — treat new sessions as fresh feature/polish requests unless a new bug report comes in. If one does and the reason string is `css_leak_blocked` or `slide_element_protected`, re-check `llm.js`'s guard chain first since those are the two guards with known false-positive history.
 
 ## Key files
 
