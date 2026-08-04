@@ -438,7 +438,7 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
           required: ['slide_id', 'selector', 'new_html'],
           properties: {
             slide_id: { type: 'string', description: 'The `data-section` value of the target slide (e.g. "hero", "why-now", "gap", "stack", "beachheads", "scale", "proof", "roadmap", "closing", "attribution"). Use "meta" for changes that live outside a slide (e.g. accent CSS variable, <html> attributes).' },
-            selector: { type: 'string', description: 'CSS selector inside the slide (scoped to that slide). For "meta" patches, a global selector such as ":root" or "html".' },
+            selector: { type: 'string', description: 'CSS selector inside the slide (scoped to that slide). For "meta" patches, a global selector such as ":root" or "html". NEVER target the outer `.slide` element itself with op "replace" — that patch will be blocked entirely. Always scope to a child element inside the slide (e.g. `.section-title`, `.hero h1`, a specific card or list).' },
             new_html: { type: 'string', description: 'The replacement outerHTML for the matched element. Must be valid HTML that fits inside its parent.' },
             op: { type: 'string', enum: ['replace', 'set-attribute', 'set-style'], description: 'Default is "replace". Use "set-attribute" or "set-style" when only a single attribute/style is being changed (then `new_html` is the value, and `selector` may include a `::attr(name)` or `::style(prop)` suffix).' },
           },

@@ -6,6 +6,10 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["-y", "serve", ".", "-l", "4173"],
       "port": 4173
+    },
+    {
+      "name": "icp-heroku",
+      "url": "https://sassysolutions-interactiveprez-ec40690dc476.rose-virginia.herokuapp.com"
     }
   ]
 }

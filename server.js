@@ -11,6 +11,13 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+process.on('uncaughtException', (err) => {
+  console.error('uncaughtException', err);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('unhandledRejection', err);
+});
+
 // ============================================================
 // Configuration
 // ============================================================

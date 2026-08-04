@@ -280,14 +280,14 @@ async function generateDeck(answers) {
       accent: answers.accent_hex,
     });
 
-    appendMessage('assistant', 'Click any slide on the right to refine it — I can rewrite copy, swap the accent, tighten the hero, whatever you need.');
+    appendMessage('assistant', 'Want changes on a specific slide? Select it on the right, then just tell me what to change in the chat box below — I\'ll apply it to that slide.');
     state.generatedOnce = true;
   } catch (err) {
     if (err.name === 'AbortError') {
       appendMessage('assistant', 'Cancelled.');
     } else {
       console.error(err);
-      appendMessage('assistant', `⚠️ ${err.userMessage || err.message}`);
+      appendErrorWithRetry(`⚠️ ${err.userMessage || err.message}`, () => generateDeck(answers));
     }
   } finally {
     // Always rebuild the slide nav so the TOC stays current even after errors
@@ -335,7 +335,7 @@ async function regenerateForDeckType(answers) {
     if (skipped.length) console.warn('skipped patches during retype', skipped);
   } catch (err) {
     console.error(err);
-    appendMessage('assistant', `⚠️ Could not adapt content: ${err.userMessage || err.message}`);
+    appendErrorWithRetry(`⚠️ Could not adapt content: ${err.userMessage || err.message}`, () => regenerateForDeckType(answers));
   }
 }
 
@@ -724,7 +724,8 @@ async function sendFreeformRequest(text) {
   const { slides: referencedSlides, ambiguousLabels } = extractReferencedSlides(text);
   if (ambiguousLabels.length > 0) {
     state.pendingSlideClarification = { candidates: ambiguousLabels, originalText: text };
-    appendMessage('assistant', `Did you mean the ${ambiguousLabels.join(' or the ')} slide? Let me know which one and I'll continue.`);
+    const phrase = ambiguousLabels.map((l) => (/^the\s/i.test(l) ? l : `the ${l}`)).join(' or ');
+    appendMessage('assistant', `Did you mean ${phrase} slide? Let me know which one and I'll continue.`);
     return;
   }
 
@@ -1070,6 +1071,26 @@ function appendMessage(role, text, patchResult) {
   let html = `<div class="msg-label">${label}</div>${escapeHtml(text)}`;
   if (patchResult) html += renderPatchBadge(patchResult.applied, patchResult.skipped);
   div.innerHTML = html;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+function appendErrorWithRetry(text, onRetry) {
+  const log = document.getElementById('chat-log');
+  const div = document.createElement('div');
+  div.className = 'msg assistant';
+  div.innerHTML = `<div class="msg-label">Imran AI</div>${escapeHtml(text)}`;
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn-retry';
+  btn.textContent = 'Try again';
+  btn.addEventListener('click', () => {
+    btn.disabled = true;
+    onRetry();
+  }, { once: true });
+  div.appendChild(btn);
+
   log.appendChild(div);
   log.scrollTop = log.scrollHeight;
 }
