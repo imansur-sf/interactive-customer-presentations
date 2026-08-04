@@ -6,7 +6,7 @@ Last updated: 2026-08-04. **Read this first — do not re-read prior conversatio
 
 - **Working directory**: `/Users/imansur/claude/interactive-customer-presentations 3.0` (fresh clone of `imansur-sf/interactive-customer-presentations`).
 - **Branch**: `main`.
-- **Latest commit**: includes the CSS-leak-guard fix + "How It Works" prompt rewrite, live-verified this session (full details in `PROGRESS.md`'s 2026-08-04 entry). Check `git log -1` for the exact hash — **not yet confirmed pushed**; ask before pushing per standing directive #3 below unless the user's message that turn is itself an explicit push instruction.
+- **Latest commit**: `4dd48b0` — "Fix CSS-leak guard false positive and personalize How It Works slide" (full details in `PROGRESS.md`'s 2026-08-04 entry). **Not yet pushed** — ask before pushing per standing directive #3 below unless the user's message that turn is itself an explicit push instruction.
 - The `2.0` folder and the original `/Users/imansur/claude/interactive-customer-presentations` folder are **STALE** (older BYOK/Anthropic-era architecture, different git history). Do NOT work in them.
 - All 21 previously-tracked tasks are complete. No known bugs are pending.
 
