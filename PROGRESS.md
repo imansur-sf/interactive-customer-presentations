@@ -4,6 +4,14 @@ Chronological record of completed work on the `3.0` app (Heroku + Gemini backend
 
 ---
 
+## 2026-08-05 (later) — Duplicate local checkout deleted
+
+Per explicit user sign-off ("if the interactive customer presentations folder (that doesn't have the 3.0 suffix) is dated and doesn't have anything that this 3.0 one has, then go ahead and delete it"). Before deleting, re-verified the precondition rather than assuming it: `git status` on the non-`3.0` folder showed only 3 dirty/untracked paths (`.claude/launch.json` modified, `.claude/session-state.md` and `HANDOFF.md` untracked) and confirmed via `git log main --not origin/main` that it had zero unique local commits. Content-diffed all 3 files individually — `launch.json`'s diff only redirected preview configs at the `3.0` folder (a workaround for the wrong-cwd preview bug, not unique content); `session-state.md` was empty session-timestamp logging; `HANDOFF.md` was a stale pre-migration doc (dated 2026-07-24, describing the old BYOK/SF-Gateway architecture) already superseded by `3.0`'s own history. Confirmed nothing unique existed.
+
+Ran `rm -rf` on the folder. All real project content (code, `worker/`, `skill-context/`, docs) was successfully removed. The sandbox refused to delete `.claude/` or `.git/` internals (`Operation not permitted`) because this folder was the session's own primary working directory and the sandbox hard-protects its own control/git directories from agent deletion — not a permission-prompt situation, a fixed technical restriction (`dangerouslyDisableSandbox` is policy-disabled). Net result: an empty `.claude`/`.git` shell remains on disk at that path; harmless, and removable manually outside a Claude session (`rm -rf`) if the user wants it fully gone. This resolves what had previously been logged as an open "needs a user decision" item — see HANDOFF.md.
+
+---
+
 ## 2026-08-05 — UX-improvement analysis (ideas only, nothing implemented)
 
 Per user request ("start doing an analysis to see if there's any other ideas you can come up with to improve the overall user experience"), following the slide-reordering/Hero-KPI/desync-fix session below. A background code-and-doc-based audit agent was run against this (`3.0`) codebase, briefed to read HANDOFF.md/PROGRESS.md first and skip anything already resolved. **No live-browser walkthrough was performed** — see HANDOFF.md's "Duplicate local checkout" open item for why (this session's preview tooling was defaulting to a stale, 74-commits-behind second local clone). Findings below are code-citation-backed but not click-tested; treat as ideas to triage, not verified bugs.
