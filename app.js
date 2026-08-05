@@ -40,7 +40,15 @@ const state = {
   meetingNotes: '',   // optional meeting notes / context from user
   activeSlideOrder: null, // current slide order (may be expanded by animations)
   pendingSlideClarification: null, // { candidates, originalText } while awaiting disambiguation reply
+  editMode: null, // { pairs: [{ iframeEl, deckEl, onInput, onPaste }] } while manual text-edit mode is active
 };
+
+// Tags that can never be a manual-edit region: non-content elements (scripts,
+// form controls, embeds) and SVG, whose text/contenteditable semantics differ.
+const EDITABLE_SKIP_TAGS = new Set([
+  'SCRIPT', 'STYLE', 'TEMPLATE', 'INPUT', 'TEXTAREA', 'SELECT', 'BUTTON',
+  'IFRAME', 'CANVAS', 'VIDEO', 'AUDIO', 'OBJECT', 'SVG',
+]);
 
 document.addEventListener('DOMContentLoaded', async () => {
   ensureSessionId();
@@ -82,6 +90,29 @@ async function loadReferenceDeck() {
   const baseTag = doc.createElement('base');
   baseTag.setAttribute('href', baseHref);
   doc.head.prepend(baseTag);
+
+  // Manual-edit-mode affordance styling. Injected once into the deck itself
+  // so it survives every future mountPreview()/rerenderPreview() serialization
+  // for free — no per-render wiring needed.
+  const editStyle = doc.createElement('style');
+  editStyle.id = 'icp-edit-mode-style';
+  editStyle.textContent = `
+    body.icp-edit-mode [contenteditable="true"] {
+      outline: 1px dashed rgba(0,0,0,0.25);
+      outline-offset: 2px;
+      cursor: text;
+      border-radius: 2px;
+    }
+    body.icp-edit-mode [contenteditable="true"]:hover {
+      outline-color: var(--sf-blue, #0176D3);
+    }
+    body.icp-edit-mode [contenteditable="true"]:focus {
+      outline: 2px solid var(--sf-blue, #0176D3);
+      outline-offset: 2px;
+      background: rgba(1,118,211,0.06);
+    }
+  `;
+  doc.head.appendChild(editStyle);
 
   state.deckDoc = doc;
   enumerateSlides();
@@ -133,6 +164,7 @@ function mountPreview() {
 // Called after applyPatches: re-render the iframe to reflect deckDoc changes.
 // Preserves the current active slide index if possible.
 function rerenderPreview() {
+  if (state.editMode) exitEditMode(); // flush + detach before the iframe doc is torn down
   const iframe = document.getElementById('preview-iframe');
   if (!state.deckDoc?.documentElement) return;
   const html = '<!DOCTYPE html>\n' + state.deckDoc.documentElement.outerHTML;
@@ -150,8 +182,93 @@ function rerenderPreview() {
   iframe.srcdoc = html;
 }
 
+// ------------------------------------------------------------------ Manual edit mode
+// Click-to-edit fallback for when the AI patch pipeline won't or can't make a
+// requested copy change (e.g. a guard in applyPatches blocked it). Only leaf
+// text elements become contenteditable — never whole-slide HTML — so manual
+// edits can't corrupt structure the same way an unguarded AI patch could.
+
+// True if el has at least one direct child Text node with non-whitespace content.
+function hasDirectText(el) {
+  return Array.from(el.childNodes).some((n) => n.nodeType === Node.TEXT_NODE && n.textContent.trim());
+}
+
+// Returns the outermost elements that carry their own direct text, skipping
+// non-content tags (scripts, form controls, SVG). The deck's markup is mostly
+// bespoke <div>/<span> rather than semantic tags, so eligibility is determined
+// structurally instead of via a tag/class allowlist. "Outermost wins" (rather
+// than innermost) so mixed-content blocks like `<h1>text<em>more</em></h1>`
+// become one editable unit instead of orphaning the outer element's own text.
+function leafEditableEls(container) {
+  const candidates = Array.from(container.querySelectorAll('*')).filter(
+    (el) => !EDITABLE_SKIP_TAGS.has(el.tagName) && !el.closest('svg') && hasDirectText(el)
+  );
+  return candidates.filter((el) => !candidates.some((other) => other !== el && other.contains(el)));
+}
+
+function enterEditMode() {
+  if (state.editMode || state.activeSlideIdx == null) return;
+  const slide = state.slides[state.activeSlideIdx];
+  if (!slide) return;
+
+  const iframe = document.getElementById('preview-iframe');
+  const inner = iframe?.contentDocument;
+  if (!inner) return;
+
+  const iframeSlideEl = inner.getElementById(slide.id);
+  const deckSlideEl = state.deckDoc?.getElementById(slide.id);
+  if (!iframeSlideEl || !deckSlideEl) return;
+
+  // The iframe doc is a fresh serialization of deckDoc (mountPreview /
+  // rerenderPreview), so these two lists are guaranteed the same length and
+  // order — pair them positionally rather than trying to match by identity.
+  const iframeEls = leafEditableEls(iframeSlideEl);
+  const deckEls = leafEditableEls(deckSlideEl);
+
+  const pairs = [];
+  iframeEls.forEach((iframeEl, i) => {
+    const deckEl = deckEls[i];
+    if (!deckEl) return;
+    iframeEl.setAttribute('contenteditable', 'true');
+
+    const onInput = () => { deckEl.innerHTML = iframeEl.innerHTML; };
+    const onPaste = (e) => {
+      e.preventDefault();
+      const text = e.clipboardData?.getData('text/plain') ?? '';
+      inner.execCommand('insertText', false, text);
+    };
+    iframeEl.addEventListener('input', onInput);
+    iframeEl.addEventListener('paste', onPaste);
+    pairs.push({ iframeEl, deckEl, onInput, onPaste });
+  });
+
+  inner.body?.classList.add('icp-edit-mode');
+  state.editMode = { pairs };
+
+  const btn = document.getElementById('scope-chip-edit');
+  if (btn) { btn.textContent = 'Done'; btn.classList.add('active'); }
+}
+
+function exitEditMode() {
+  if (!state.editMode) return;
+  state.editMode.pairs.forEach(({ iframeEl, onInput, onPaste }) => {
+    onInput(); // final flush, in case the last keystroke's input event was superseded
+    iframeEl.removeEventListener('input', onInput);
+    iframeEl.removeEventListener('paste', onPaste);
+    iframeEl.removeAttribute('contenteditable');
+  });
+  document.getElementById('preview-iframe')?.contentDocument?.body?.classList.remove('icp-edit-mode');
+  state.editMode = null;
+
+  try { enforceKpiStyling(); enforceTextContrast(); } catch (_) { /* non-fatal */ }
+
+  const btn = document.getElementById('scope-chip-edit');
+  if (btn) { btn.textContent = '✎ Edit text'; btn.classList.remove('active'); }
+}
+
 // ------------------------------------------------------------------ Slide select / scope
 function selectSlide(idx) {
+  if (state.editMode) exitEditMode(); // flush + detach before scope moves to a different slide
   const slide = state.slides[idx];
   if (!slide) return;
   state.activeSlideIdx = idx;
@@ -969,6 +1086,11 @@ function wireChat() {
 
   document.getElementById('scope-chip-clear').addEventListener('click', clearScope);
 
+  document.getElementById('scope-chip-edit').addEventListener('click', () => {
+    if (state.editMode) exitEditMode();
+    else enterEditMode();
+  });
+
   // File upload for logo customization
   document.getElementById('file-upload').addEventListener('change', (e) => {
     const file = e.target.files[0];
@@ -1102,9 +1224,11 @@ function setBusy(busy, label) {
   const btn = document.getElementById('btn-send');
   const ta = document.getElementById('chat-textarea');
   const stopBtn = document.getElementById('btn-stop');
+  const editBtn = document.getElementById('scope-chip-edit');
   btn.disabled = busy;
   ta.disabled = busy;
   stopBtn.hidden = !busy;
+  if (editBtn) editBtn.disabled = busy;
   if (busy) {
     const log = document.getElementById('chat-log');
     const div = document.createElement('div');

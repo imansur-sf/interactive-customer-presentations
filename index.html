@@ -266,6 +266,7 @@
       margin: 0 16px 8px;
     }
     .scope-chip.visible { display: flex; }
+    .scope-chip .chip-actions { display: flex; align-items: center; gap: 6px; }
     .scope-chip button {
       background: transparent;
       color: rgba(255,255,255,0.7);
@@ -275,6 +276,20 @@
       padding: 0 2px;
       line-height: 1;
     }
+    #scope-chip-edit {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.35);
+    }
+    #scope-chip-edit:hover { color: #fff; border-color: rgba(255,255,255,0.6); }
+    #scope-chip-edit.active {
+      background: #fff;
+      color: #0b4a73;
+      border-color: #fff;
+    }
+    #scope-chip-edit:disabled { opacity: 0.4; cursor: not-allowed; }
 
     /* -------- Center pane: preview -------- */
     .pane-preview {
@@ -872,7 +887,10 @@
       </div>
       <div class="scope-chip" id="scope-chip">
         <span>Editing slide: <strong id="scope-chip-label"></strong></span>
-        <button id="scope-chip-clear" title="Clear scope">×</button>
+        <div class="chip-actions">
+          <button id="scope-chip-edit" title="Directly edit this slide's text">✎ Edit text</button>
+          <button id="scope-chip-clear" title="Clear scope">×</button>
+        </div>
       </div>
       <div class="chat-input">
         <textarea id="chat-textarea" placeholder="Ask Imran AI to edit any slide, or start the interview… (⏎ to send)" rows="1"></textarea>
