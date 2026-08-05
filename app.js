@@ -40,7 +40,8 @@ const state = {
   meetingNotes: '',   // optional meeting notes / context from user
   activeSlideOrder: null, // current slide order (may be expanded by animations)
   pendingSlideClarification: null, // { candidates, originalText } while awaiting disambiguation reply
-  editMode: null, // { pairs: [{ iframeEl, deckEl, onInput, onPaste }] } while manual text-edit mode is active
+  editMode: null, // { pairs: [{ iframeEl, deckEl, onInput, onPaste }], imgPairs: [{ iframeEl, deckEl, onClick }] } while manual edit mode is active
+  pendingImageSwap: null, // { iframeEl, deckEl } — set right before #icon-upload's file picker opens
 };
 
 // Tags that can never be a manual-edit region: non-content elements (scripts,
@@ -109,6 +110,16 @@ async function loadReferenceDeck() {
     body.icp-edit-mode [contenteditable="true"]:focus {
       outline: 2px solid var(--sf-blue, #0176D3);
       outline-offset: 2px;
+      background: rgba(1,118,211,0.06);
+    }
+    body.icp-edit-mode .icp-edit-img {
+      outline: 1px dashed rgba(0,0,0,0.25);
+      outline-offset: 2px;
+      cursor: pointer;
+      border-radius: 2px;
+    }
+    body.icp-edit-mode .icp-edit-img:hover {
+      outline-color: var(--sf-blue, #0176D3);
       background: rgba(1,118,211,0.06);
     }
   `;
@@ -201,9 +212,16 @@ function hasDirectText(el) {
 // become one editable unit instead of orphaning the outer element's own text.
 function leafEditableEls(container) {
   const candidates = Array.from(container.querySelectorAll('*')).filter(
-    (el) => !EDITABLE_SKIP_TAGS.has(el.tagName) && !el.closest('svg') && hasDirectText(el)
+    (el) => !EDITABLE_SKIP_TAGS.has(el.tagName) && !el.closest('svg') && !el.closest('[data-copyright]') && hasDirectText(el)
   );
   return candidates.filter((el) => !candidates.some((other) => other !== el && other.contains(el)));
+}
+
+// Icon/image elements eligible for click-to-replace. Excludes app/Salesforce
+// branding (marked data-brand-logo, e.g. the Thank You slide's SF logo) —
+// same protection the AI patch pipeline enforces in llm.js.
+function editableImgEls(container) {
+  return Array.from(container.querySelectorAll('img')).filter((el) => !el.closest('[data-brand-logo]'));
 }
 
 function enterEditMode() {
@@ -242,8 +260,28 @@ function enterEditMode() {
     pairs.push({ iframeEl, deckEl, onInput, onPaste });
   });
 
+  const iframeImgs = editableImgEls(iframeSlideEl);
+  const deckImgs = editableImgEls(deckSlideEl);
+
+  const imgPairs = [];
+  iframeImgs.forEach((iframeEl, i) => {
+    const deckEl = deckImgs[i];
+    if (!deckEl) return;
+    iframeEl.classList.add('icp-edit-img');
+    iframeEl.title = 'Click to replace this image';
+
+    const onClick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      state.pendingImageSwap = { iframeEl, deckEl };
+      document.getElementById('icon-upload')?.click();
+    };
+    iframeEl.addEventListener('click', onClick);
+    imgPairs.push({ iframeEl, deckEl, onClick });
+  });
+
   inner.body?.classList.add('icp-edit-mode');
-  state.editMode = { pairs };
+  state.editMode = { pairs, imgPairs };
 
   const btn = document.getElementById('scope-chip-edit');
   if (btn) { btn.textContent = 'Done'; btn.classList.add('active'); }
@@ -257,13 +295,19 @@ function exitEditMode() {
     iframeEl.removeEventListener('paste', onPaste);
     iframeEl.removeAttribute('contenteditable');
   });
+  state.editMode.imgPairs.forEach(({ iframeEl, onClick }) => {
+    iframeEl.removeEventListener('click', onClick);
+    iframeEl.classList.remove('icp-edit-img');
+    iframeEl.removeAttribute('title');
+  });
   document.getElementById('preview-iframe')?.contentDocument?.body?.classList.remove('icp-edit-mode');
   state.editMode = null;
+  state.pendingImageSwap = null;
 
   try { enforceKpiStyling(); enforceTextContrast(); } catch (_) { /* non-fatal */ }
 
   const btn = document.getElementById('scope-chip-edit');
-  if (btn) { btn.textContent = '✎ Edit text'; btn.classList.remove('active'); }
+  if (btn) { btn.textContent = '✎ Edit content'; btn.classList.remove('active'); }
 }
 
 // ------------------------------------------------------------------ Slide select / scope
@@ -398,7 +442,7 @@ async function generateDeck(answers) {
       accent: answers.accent_hex,
     });
 
-    appendMessage('assistant', 'Want changes on a specific slide? Select it on the right, then just tell me what to change in the chat box below — I\'ll apply it to that slide.');
+    appendMessage('assistant', 'Want changes on a specific slide? Select it on the right, then either tell me what to change in the chat box below, or click "✎ Edit content" to edit the copy and icons directly on the slide.');
     state.generatedOnce = true;
   } catch (err) {
     if (err.name === 'AbortError') {
@@ -1131,6 +1175,27 @@ function wireChat() {
     reader.readAsDataURL(file);
     e.target.value = ''; // Reset so same file can be re-uploaded
   });
+
+  // File upload for click-to-replace icon/image swap (edit mode)
+  document.getElementById('icon-upload').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    const swap = state.pendingImageSwap;
+    state.pendingImageSwap = null;
+    if (!file || !swap) { e.target.value = ''; return; }
+    if (!file.type.startsWith('image/')) {
+      appendMessage('assistant', '⚠️ Please upload an image file (PNG, JPG, SVG, etc.).');
+      e.target.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUri = reader.result;
+      swap.iframeEl.src = dataUri;
+      swap.deckEl.src = dataUri;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = ''; // Reset so same file can be re-uploaded
+  });
 }
 
 function sendMessage() {
@@ -1163,6 +1228,9 @@ const PATCH_SKIP_REASONS = {
   script_tag_protected: 'blocked — cannot touch wiring scripts',
   attr_op_missing_suffix: 'malformed attribute patch',
   style_op_missing_suffix: 'malformed style patch',
+  copyright_protected: 'blocked — protected attribution footer',
+  brand_logo_protected: 'blocked — brand logo is protected',
+  unsafe_image_src: 'blocked — image URL must be http(s) or a data:image URI',
 };
 
 function renderPatchBadge(applied, skipped) {

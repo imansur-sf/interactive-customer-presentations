@@ -479,6 +479,8 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
           '• If the user asks about a specific element (e.g. "the KPIs"), modify only that element.',
           '• When in doubt, change LESS rather than MORE.',
           '',
+          'ICON/IMAGE REPLACEMENT: If the user gives you a URL to replace an icon or image, use op "set-attribute" with a selector ending in `::attr(src)` targeting the specific `<img>` (e.g. selector `#s4-n1 img::attr(src)`, new_html the URL). Never use op "replace" for image swaps. The URL must be a plain http(s) link — never touch images inside `.cobrand-pill` or any element marked `data-brand-logo` (Salesforce/app branding, not customer content).',
+          '',
         ].join('\n')
       : '';
 
@@ -509,6 +511,8 @@ function buildTurnPrompt({ turn, questionId, slideId, userMessage, deckContext, 
       contextBlock,
       '',
       'Apply the edit as one or more patches. Preserve every rule in SLIDE-PRINCIPLES.md for this slide. Do not touch other slides unless the instruction explicitly requires it.',
+      '',
+      'ICON/IMAGE REPLACEMENT: If the user gives you a URL to replace an icon or image, use op "set-attribute" with a selector ending in `::attr(src)` targeting the specific `<img>` (e.g. selector `#s4-n1 img::attr(src)`, new_html the URL). Never use op "replace" for image swaps. The URL must be a plain http(s) link — never touch images inside `.cobrand-pill` or any element marked `data-brand-logo` (Salesforce/app branding, not customer content).',
     ].join('\n');
   } else if (turn === 'generate') {
     const accentHex = deckContext?.answers?.accent_hex || '#DA1710';
@@ -692,7 +696,12 @@ export function applyPatches(deckDoc, patches) {
         ? deckDoc
         : deckDoc.querySelector(`.slide[data-section="${cssEscape(sectionForSlideId(deckDoc, p.slide_id))}"]`) || deckDoc.getElementById(p.slide_id);
       if (!scope) { skipped.push({ patch: p, reason: 'slide_not_found' }); continue; }
-      const target = scope.querySelector(p.selector) || (scope.matches?.(p.selector) ? scope : null);
+      // Strip the `::attr(name)`/`::style(prop)` suffix before using the
+      // selector with querySelector/matches — that suffix is our own DSL,
+      // not valid CSS, and would otherwise throw a SyntaxError on every
+      // set-attribute/set-style patch (silently skipping them all).
+      const baseSelector = (p.selector || '').replace(/::(?:attr|style)\([^)]*\)$/, '');
+      const target = scope.querySelector(baseSelector) || (scope.matches?.(baseSelector) ? scope : null);
       if (!target) { skipped.push({ patch: p, reason: 'selector_no_match' }); continue; }
 
       const op = p.op || 'replace';
@@ -716,6 +725,24 @@ export function applyPatches(deckDoc, patches) {
       // The front-end handles all logo insertion/updates programmatically.
       if (p.selector && /\.cobrand-pill\b.*\bimg\b/i.test(p.selector)) {
         skipped.push({ patch: p, reason: 'cobrand_logo_protected' });
+        continue;
+      }
+
+      // ── Copyright/attribution guard ──────────────────────────────
+      // Never let AI patches touch the project's attribution footer
+      // (marked with data-copyright in the deck template). This is the
+      // deck owner's copyright notice, not customer content.
+      if (target.closest?.('[data-copyright]')) {
+        skipped.push({ patch: p, reason: 'copyright_protected' });
+        continue;
+      }
+
+      // ── Brand-logo guard ──────────────────────────────────────────
+      // Never let AI patches touch app/Salesforce branding images (marked
+      // with data-brand-logo in the deck template, e.g. the Thank You
+      // slide's Salesforce logo). Customer icon images are unaffected.
+      if (target.closest?.('[data-brand-logo]')) {
+        skipped.push({ patch: p, reason: 'brand_logo_protected' });
         continue;
       }
 
@@ -787,7 +814,16 @@ export function applyPatches(deckDoc, patches) {
       } else if (op === 'set-attribute') {
         const m = /::attr\(([^)]+)\)$/.exec(p.selector);
         if (!m) { skipped.push({ patch: p, reason: 'attr_op_missing_suffix' }); continue; }
-        target.setAttribute(m[1], p.new_html);
+        const attrName = m[1];
+        // Restrict `src` writes on <img> to http(s)/data-image URLs so the AI
+        // can't smuggle in javascript:/other unsafe schemes via chat.
+        if ((target.tagName || '').toUpperCase() === 'IMG' && attrName.toLowerCase() === 'src') {
+          if (!/^(https?:\/\/|data:image\/)/i.test(String(p.new_html || ''))) {
+            skipped.push({ patch: p, reason: 'unsafe_image_src' });
+            continue;
+          }
+        }
+        target.setAttribute(attrName, p.new_html);
       } else if (op === 'set-style') {
         const m = /::style\(([^)]+)\)$/.exec(p.selector);
         if (!m) { skipped.push({ patch: p, reason: 'style_op_missing_suffix' }); continue; }
