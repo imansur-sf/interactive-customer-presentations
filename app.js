@@ -507,7 +507,7 @@ async function startInterview() {
   const log = document.getElementById('chat-log');
   // Reset log to a fresh start message
   log.innerHTML = '';
-  appendMessage('assistant', "Great — let's build your deck. I'll walk you through a series of questions covering customer, deck type, Bowden goal, the Gap, hero KPIs, stack, beachheads, proof, roadmap, closing, accent color, and animations.\n\nYou can also type free-form requests in the input bar at any time — for example, ask me to create an architecture diagram or rewrite specific content.");
+  appendMessage('assistant', "Great — let's build your deck. I'll walk you through a series of questions covering customer, deck type, Bowden goal, the Gap, hero KPIs, stack, beachheads, proof, roadmap, closing, accent color, and animations.\n\nYou can also type free-form requests in the input bar at any time — for example, ask me to create an architecture diagram or rewrite specific content.\n\nNote: you may see partial previews of the deck as you go, but it won't be a complete, up-to-date version until you finish the interview and click Generate Deck.");
 
   // Enable the input bar during interview for free-form requests
   document.getElementById('chat-textarea').disabled = false;
