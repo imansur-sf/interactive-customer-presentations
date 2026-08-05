@@ -155,12 +155,31 @@ function renderNav() {
     const item = document.createElement('div');
     item.className = 'nav-item' + (pinned ? ' pinned' : '');
     item.dataset.slideIdx = String(slide.idx);
+    item.tabIndex = 0;
+    item.setAttribute('role', 'button');
+    item.setAttribute('aria-current', slide.idx === state.activeSlideIdx ? 'true' : 'false');
+    item.setAttribute('aria-label', pinned ? slide.label : `${slide.label}, reorderable — use Alt+Up or Alt+Down to move`);
     item.innerHTML = `
       ${pinned ? '' : '<div class="drag-handle" title="Drag to reorder">⠿</div>'}
       <div class="idx">${slide.idx + 1}</div>
       <div class="label" title="${escapeAttr(slide.label)}">${escapeHtml(slide.label)}</div>
     `;
     item.addEventListener('click', () => selectSlide(slide.idx));
+    item.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        selectSlide(slide.idx);
+        return;
+      }
+      if (pinned || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || !(e.altKey || e.metaKey)) return;
+      e.preventDefault();
+      const toIdx = slide.idx + (e.key === 'ArrowUp' ? -1 : 1);
+      if (toIdx <= 0 || toIdx >= lastIdx) return;
+      reorderSlide(slide.idx, toIdx);
+      requestAnimationFrame(() => {
+        list.querySelector(`.nav-item[data-slide-idx="${toIdx}"]`)?.focus();
+      });
+    });
 
     if (!pinned) {
       item.draggable = true;
@@ -225,7 +244,9 @@ function reorderSlide(fromIdx, toIdx) {
 
   if (state.activeSlideIdx != null) {
     document.querySelectorAll('.nav-item').forEach((el) => {
-      el.classList.toggle('active', Number(el.dataset.slideIdx) === state.activeSlideIdx);
+      const isActive = Number(el.dataset.slideIdx) === state.activeSlideIdx;
+      el.classList.toggle('active', isActive);
+      el.setAttribute('aria-current', isActive ? 'true' : 'false');
     });
   }
 
@@ -259,8 +280,41 @@ function rerenderPreview() {
       const dot = inner?.querySelectorAll('#dots .dot')[restoreIdx];
       if (dot) dot.click();
     }
+    checkQueuedImageLoads(iframe.contentDocument);
   });
   iframe.srcdoc = html;
+}
+
+// Tag a deckDoc <img> for a post-render load check — the tag serializes into
+// the iframe's srcdoc so we can inspect the *live* element (naturalWidth is
+// meaningless on the detached deckDoc, which never actually loads images).
+function queueImageLoadCheck(imgEl, label) {
+  if (!imgEl) return;
+  imgEl.dataset.icpLoadCheck = label;
+}
+
+// Mark every <img> an just-applied AI patch pointed `src` at, so a dead/
+// blocked URL surfaces as a chat warning instead of failing silently.
+function queueImageLoadChecksFromPatches(applied) {
+  (applied || []).forEach((p) => {
+    if (p.op !== 'set-attribute' || !/::attr\(src\)$/i.test(p.selector || '')) return;
+    const img = Array.from(state.deckDoc?.querySelectorAll('img') || [])
+      .find((el) => el.getAttribute('src') === p.new_html);
+    queueImageLoadCheck(img, 'Image');
+  });
+}
+
+// Run after the iframe (re)loads: warn in chat for any tagged <img> that
+// failed to load, then clear the tags so they don't leak into future renders.
+function checkQueuedImageLoads(iframeDoc) {
+  if (iframeDoc) {
+    iframeDoc.querySelectorAll('img[data-icp-load-check]').forEach((img) => {
+      if (img.complete && img.naturalWidth === 0) {
+        appendMessage('assistant', `⚠️ ${img.dataset.icpLoadCheck} failed to load — the URL may be broken, blocked, or unreachable.`);
+      }
+    });
+  }
+  state.deckDoc?.querySelectorAll('[data-icp-load-check]').forEach((el) => el.removeAttribute('data-icp-load-check'));
 }
 
 // ------------------------------------------------------------------ Manual edit mode
@@ -339,6 +393,13 @@ function enterEditMode() {
         iframeEl.dataset.label = label;
         deckEl.dataset.label = label;
       }
+      // Data Pipeline KPI targets are cached the same way as Hero's, via
+      // kpiTarget() in sf-composer.html — clear on manual edit so Play/Reset
+      // re-reads the user's new number instead of reverting to the old one.
+      if (iframeEl.classList.contains('pipeline-kpi')) {
+        delete iframeEl.dataset.countupTarget;
+        delete deckEl.dataset.countupTarget;
+      }
     };
     const onPaste = (e) => {
       e.preventDefault();
@@ -358,7 +419,7 @@ function enterEditMode() {
     const deckEl = deckImgs[i];
     if (!deckEl) return;
     iframeEl.classList.add('icp-edit-img');
-    iframeEl.title = 'Click to replace this image';
+    iframeEl.title = 'Click to replace this image, or paste an image URL in chat';
 
     const onClick = (e) => {
       e.preventDefault();
@@ -409,7 +470,9 @@ function selectSlide(idx) {
   state.scope = idx;
 
   document.querySelectorAll('.nav-item').forEach((el) => {
-    el.classList.toggle('active', Number(el.dataset.slideIdx) === idx);
+    const isActive = Number(el.dataset.slideIdx) === idx;
+    el.classList.toggle('active', isActive);
+    el.setAttribute('aria-current', isActive ? 'true' : 'false');
   });
 
   const iframe = document.getElementById('preview-iframe');
@@ -503,9 +566,10 @@ async function generateDeck(answers) {
         slides: state.slides.map((s) => ({ idx: s.idx, label: s.label, section: s.dataSection })),
       },
       model: 'sonnet',
-    }, { signal: controller.signal });
+    }, { signal: controller.signal, onHeartbeat: makeHeartbeatTicker('Generating deck…') });
 
     const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
+    queueImageLoadChecksFromPatches(applied);
 
     // Reorder + hide slides based on deck type (expand for animations if selected)
     const expandedOrder = buildExpandedSlideOrder(answers);
@@ -574,6 +638,7 @@ async function regenerateForDeckType(answers) {
     });
 
     const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
+    queueImageLoadChecksFromPatches(applied);
 
     // Safety net: re-apply structure + brand colors + KPI styling + text contrast after AI patches
     try { applyAccentAndCobrand(answers); } catch (e) { console.warn('retype brand failed', e); }
@@ -651,6 +716,7 @@ function applyAccentAndCobrand(answers) {
       img.alt = answers.customer || 'Customer';
       img.style.cssText = 'border-radius:4px;object-fit:contain;';
       divider.insertAdjacentElement('afterend', img);
+      queueImageLoadCheck(img, 'Logo');
     }
     // Hide text span — logos are sufficient
     if (pillSpan) pillSpan.style.display = 'none';
@@ -858,6 +924,7 @@ async function handleProgressiveUpdate(questionId, answers) {
       model: 'haiku', // fast tier for quick incremental updates
     });
     const { applied } = applyPatches(state.deckDoc, resp.patches || []);
+    queueImageLoadChecksFromPatches(applied);
     if (applied.length) {
       // Re-enforce structure + brand colors + KPI styling after AI patches
       try { applyBrandColors(answers); } catch (e) { console.warn('progressive brand failed', e); }
@@ -912,6 +979,7 @@ async function scrapeLogoBackground(url) {
             img.alt = 'Customer';
             img.style.cssText = 'border-radius:4px;object-fit:contain;';
             divider.insertAdjacentElement('afterend', img);
+            queueImageLoadCheck(img, 'Logo');
           }
           // Hide text span — logo is enough
           const pillSpan = pill.querySelector('span');
@@ -933,6 +1001,8 @@ async function sendScopedEdit(text) {
   const currentSlideEl = inner?.getElementById(slide.id);
   const currentHtml = currentSlideEl ? currentSlideEl.outerHTML : '';
 
+  if (state.editMode) exitEditMode();
+
   appendMessage('user', text);
   const controller = new AbortController();
   activeAbort = controller;
@@ -951,6 +1021,7 @@ async function sendScopedEdit(text) {
     }, { signal: controller.signal });
 
     const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
+    queueImageLoadChecksFromPatches(applied);
     rerenderPreview();
     appendMessage('assistant', resp.message || `Applied ${applied.length} change${applied.length === 1 ? '' : 's'}.`, { applied, skipped });
     if (skipped.length) console.warn('skipped patches', skipped);
@@ -1027,9 +1098,10 @@ async function runFreeformRequest(text, referencedSlides) {
         chatHistory: getRecentChatHistory(5),
       },
       model: 'sonnet',
-    }, { signal: controller.signal });
+    }, { signal: controller.signal, onHeartbeat: makeHeartbeatTicker('Working on your request…') });
 
     const { applied, skipped } = applyPatches(state.deckDoc, resp.patches || []);
+    queueImageLoadChecksFromPatches(applied);
     rerenderPreview();
     appendMessage('assistant', resp.message || `Applied ${applied.length} change${applied.length === 1 ? '' : 's'}.`, { applied, skipped });
     if (skipped.length) console.warn('skipped patches', skipped);
@@ -1253,6 +1325,7 @@ function wireChat() {
             img.alt = 'Customer logo';
             img.style.cssText = 'border-radius:4px;object-fit:contain;';
             divider.insertAdjacentElement('afterend', img);
+            queueImageLoadCheck(img, 'Logo');
           }
           // Hide text span — logo is enough
           const pillSpan = pill.querySelector('span');
@@ -1280,8 +1353,10 @@ function wireChat() {
     const reader = new FileReader();
     reader.onload = () => {
       const dataUri = reader.result;
+      swap.iframeEl.onerror = () => appendMessage('assistant', '⚠️ Image could not be loaded — the file may be corrupted.');
       swap.iframeEl.src = dataUri;
       swap.deckEl.src = dataUri;
+      appendMessage('assistant', '✅ Image updated on the slide.');
     };
     reader.readAsDataURL(file);
     e.target.value = ''; // Reset so same file can be re-uploaded
@@ -1321,6 +1396,8 @@ const PATCH_SKIP_REASONS = {
   copyright_protected: 'blocked — protected attribution footer',
   brand_logo_protected: 'blocked — brand logo is protected',
   unsafe_image_src: 'blocked — image URL must be http(s) or a data:image URI',
+  unknown_op: 'blocked — unrecognized patch operation',
+  patch_apply_error: "couldn't be applied — something about the patch didn't match the slide",
 };
 
 function renderPatchBadge(applied, skipped) {
@@ -1337,7 +1414,8 @@ function renderPatchBadge(applied, skipped) {
     const items = skipped.map(({ patch, reason }) => {
       const slideId = escapeHtml(patch?.slide_id || '?');
       const selector = escapeHtml(patch?.selector || '?');
-      const reasonText = escapeHtml(PATCH_SKIP_REASONS[reason] || reason || 'unknown');
+      if (reason && !PATCH_SKIP_REASONS[reason]) console.warn('unrecognized patch skip reason', reason, patch);
+      const reasonText = escapeHtml(PATCH_SKIP_REASONS[reason] || 'unknown reason');
       return `<li><strong>${slideId}</strong> <code>${selector}</code> — ${reasonText}</li>`;
     }).join('');
     html += `<details class="patch-details"><summary>Why were changes skipped?</summary><ul>${items}</ul></details>`;
@@ -1399,6 +1477,25 @@ function setBusy(busy, label) {
     document.getElementById('busy-msg')?.remove();
     activeAbort = null;
   }
+}
+
+// Updates the text of an already-shown busy message in place, without
+// touching disabled state. Used to surface progress on long-running calls.
+function updateBusyLabel(label) {
+  const div = document.getElementById('busy-msg');
+  if (!div) return;
+  div.innerHTML = `<div class="msg-label">Imran AI</div><span class="spinner"></span>${escapeHtml(label)}`;
+}
+
+// Returns a heartbeat callback that escalates the busy label over time,
+// so a long streaming call (deck gen can take minutes) doesn't look stalled.
+function makeHeartbeatTicker(baseLabel) {
+  let n = 0;
+  return () => {
+    n += 1; // heartbeats arrive roughly every 10s
+    const suffix = n < 3 ? '' : n < 9 ? ' — still working…' : ' — this is taking longer than usual, hang tight…';
+    updateBusyLabel(`${baseLabel}${suffix}`);
+  };
 }
 
 // ------------------------------------------------------------------ Nav footer

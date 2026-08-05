@@ -307,20 +307,28 @@ export class InterviewController {
     // Validate required fields — declared before renderControl calls so that
     // controls that fire onChange immediately (e.g. multiselect seeding [])
     // don't hit a temporal dead zone.
+    let touched = false;
+    const hint = document.createElement('div');
+    hint.className = 'q-validation-hint';
+    hint.setAttribute('aria-live', 'polite');
+
     const validate = () => {
-      let ok = true;
+      const missing = [];
       for (const f of q.fields) {
         if (!f.required) continue;
         const v = state[f.key];
-        if (v == null) { ok = false; break; }
-        if (typeof v === 'string' && !v.trim()) { ok = false; break; }
-        if (Array.isArray(v)) {
-          if (v.length === 0) { ok = false; break; }
-          if (f.type === 'kpi-grid' && !v.every((r) => r.value && r.label)) { ok = false; break; }
-          if (f.type === 'beachheads' && !v.every((r) => r.title && r.before && r.after)) { ok = false; break; }
+        let fieldOk = true;
+        if (v == null) fieldOk = false;
+        else if (typeof v === 'string' && !v.trim()) fieldOk = false;
+        else if (Array.isArray(v)) {
+          if (v.length === 0) fieldOk = false;
+          else if (f.type === 'kpi-grid' && !v.every((r) => r.value && r.label)) fieldOk = false;
+          else if (f.type === 'beachheads' && !v.every((r) => r.title && r.before && r.after)) fieldOk = false;
         }
+        if (!fieldOk) missing.push(f.label || f.key);
       }
-      submitBtn.disabled = !ok;
+      submitBtn.disabled = missing.length > 0;
+      hint.textContent = touched && missing.length ? `Please complete: ${missing.join(', ')}` : '';
     };
 
     // Render each field's control
@@ -336,6 +344,7 @@ export class InterviewController {
 
       const { el, setValue } = this.renderControl(field, (val) => {
         state[field.key] = val;
+        touched = true;
         validate();
         // Fire live-preview callback for fields that need instant visual feedback
         // (e.g. deck_type radio: user clicks a deck type and sees layout change immediately)
@@ -364,6 +373,7 @@ export class InterviewController {
     actions.className = 'q-actions';
     if (!hideSuggest) actions.appendChild(suggestBtn);
     actions.appendChild(submitBtn);
+    wrap.appendChild(hint);
     wrap.appendChild(actions);
 
     // Initial validation

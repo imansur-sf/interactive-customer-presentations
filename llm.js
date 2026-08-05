@@ -52,10 +52,10 @@ export async function suggestAnswer({ questionId, deckContext, questionSchema })
  * The unified LLM call. Builds the system prompt and tool schema in-browser,
  * then posts to the same-origin /api/llm endpoint which proxies to Gemini.
  */
-export async function callLLM(payload, { signal } = {}) {
+export async function callLLM(payload, { signal, onHeartbeat } = {}) {
   const heavyTurns = ['generate', 'freeform', 'finalize'];
   if (heavyTurns.includes(payload?.turn)) {
-    return callServerStream(payload, signal);
+    return callServerStream(payload, signal, onHeartbeat);
   }
   return callServer(payload, signal);
 }
@@ -133,7 +133,7 @@ async function callServer(payload, signal) {
 }
 
 // -------------------- Streaming path (SSE — for heavy calls) --------------------
-async function callServerStream(payload, signal) {
+async function callServerStream(payload, signal, onHeartbeat) {
   const {
     turn = 'answer',
     questionId,
@@ -208,7 +208,10 @@ async function callServerStream(payload, signal) {
         else if (line.startsWith('data: ')) dataStr = line.slice(6);
       }
 
-      if (eventType === 'heartbeat') continue; // Ignore keepalive
+      if (eventType === 'heartbeat') {
+        try { onHeartbeat?.(); } catch (_) { /* non-fatal */ }
+        continue;
+      }
 
       if (eventType === 'error') {
         const errData = safeParse(dataStr) || {};
@@ -829,12 +832,14 @@ export function applyPatches(deckDoc, patches) {
         if (!m) { skipped.push({ patch: p, reason: 'style_op_missing_suffix' }); continue; }
         target.style.setProperty(m[1], p.new_html);
       } else {
-        skipped.push({ patch: p, reason: `unknown_op:${op}` });
+        console.warn('applyPatches: unknown op', op, p);
+        skipped.push({ patch: p, reason: 'unknown_op' });
         continue;
       }
       applied.push(p);
     } catch (e) {
-      skipped.push({ patch: p, reason: e.message });
+      console.warn('applyPatches: patch apply error', e, p);
+      skipped.push({ patch: p, reason: 'patch_apply_error' });
     }
   }
   return { applied, skipped };
