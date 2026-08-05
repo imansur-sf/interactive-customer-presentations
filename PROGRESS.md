@@ -4,6 +4,34 @@ Chronological record of completed work on the `3.0` app (Heroku + Gemini backend
 
 ---
 
+## 2026-08-05 (evening) — Full UX-improvement backlog + animated-slide editability part B
+
+Per explicit instruction ("Work on all of it. I'm going to step away for a few hours. I'll review what you've done when I return and push."). Covers all 12 items tracked since the prior sessions' UX-improvement analysis and animated-slide-editability plan — nothing deferred. **Not pushed** — committed locally only, per the standing "ask before pushing" directive; the "step away" instruction authorized independent implementation but not an unprompted push.
+
+**Commit `11dd5ab`** — "Fix silent failures, edit-mode leak, and error leakage; add a11y and progress feedback" (`app.js`, `llm.js`, `interview.js`, `index.html`). 11 of the 12 backlog items:
+- Image-swap `onerror`/`naturalWidth` check now warns in chat on a failed load instead of leaving a dead icon with a "success" badge.
+- `sendScopedEdit` now calls `exitEditMode()` before firing, closing the window where a manual edit could be silently clobbered by an in-flight AI patch.
+- `llm.js`'s dynamic skip-reason strings (`unknown_op:${op}`, raw `e.message`) replaced with fixed keys (`unknown_op`, `patch_apply_error`) mapped in `app.js`'s `PATCH_SKIP_REASONS`; raw detail moved to `console.warn` so it's still available for debugging without leaking to the user-facing chat.
+- Interview questions now show a `touched`-gated `.q-validation-hint` (`aria-live="polite"`) listing missing required fields once the user has interacted with the question, instead of just leaving Next disabled with no explanation.
+- Icon-upload now confirms success/failure in chat, matching the existing logo-upload behavior.
+- `.nav-item`s gained `role="button"`, `tabIndex=0`, `aria-current`, and descriptive `aria-label`s; `Enter`/`Space` selects, `Alt+ArrowUp/Down` (or `Meta+...`) reorders non-pinned items and refocuses the moved item.
+- `#chat-log` gained `role="log" aria-live="polite" aria-atomic="false"` so streamed/appended messages are announced to screen readers.
+- Drag-handle hover/focus contrast improved.
+- SSE `heartbeat` events (previously discarded client-side) now drive an escalating "still working" status via `callLLM`'s new `onHeartbeat` callback and `app.js`'s `makeHeartbeatTicker`, instead of a static "Generating deck…" label for up to ~5.5 minutes.
+- Image-swap tooltip now mentions the chat-URL path, not just click-to-upload.
+
+**Commit `0f9183c`** — "Make AI-in-Action and Real-Time-Data animations edit-safe (part B)" (`skill-context/sf-composer.html`, `assets/animation-interactions.css`). The 12th item, previously deferred pending a design check-in (see prior HANDOFF.md) because it changes visible layout, not just wiring:
+- S5 (AI in Action): the 7 journey-step cards are now persistent markup (`.canvas-step-card`) with a `.revealed` class toggled at reveal time, replacing the old build-from-`STEPS`-array-and-append/clear approach. `#s5-canvas` gained `role="log" aria-live="polite"`.
+- S6 (Real-Time Data): KPI targets are read from and cached back onto static markup (`kpiTarget()`/`dataset.countupTarget`) instead of hardcoded magic numbers (142800, 47, 3200, `'28ms'`), so a manual edit to a KPI's displayed value survives the next Play/Reset cycle. The 8 event-stream `<li>` items are persistent markup shown/hidden via `.show` instead of built from a hardcoded `events` array + `streamItem()`. `resetPipe()` takes a `showRestList` flag so `playS6()` can reset silently before the trickle-in animation starts (no flash of the full list). `#s6-stream` gained the same `role="log" aria-live="polite"` treatment.
+- Both Play buttons now show "Playing…" mid-sequence and restore "▶ Play" on Reset, rather than freezing on a stale label.
+- **Design rationale** (no design check-in occurred — the user was away): followed the same "fixed markup + class-toggle, never destructive create/destroy" principle already established for other animated slides in this codebase (see the 2026-08-04/05 desync-fix entry below), rather than inventing a new pattern. Validated end-to-end via `preview_eval`-based direct DOM/state inspection (monkey-patching/property inspection through the iframe's `contentWindow`, since `requestAnimationFrame`-driven calls stall in this headless preview environment) rather than a live design conversation.
+
+**Verification approach**: task-tracker reconciled to `completed` for all 12 items. Live-browser-verified via `preview_*` tools: interview validation hint (cleared a required field, confirmed the hint text and disabled Next button), slide-nav keyboard reorder + select (`Alt+ArrowDown` moved and refocused an item; `Enter` set `.active`/`aria-current` on exactly one item). The remaining items (image-swap warning, edit-mode leak fix, error-message mapping, heartbeat ticker) were verified at the diff/code-review level rather than re-tested live in the browser — heartbeat escalation in particular needs many seconds of real elapsed SSE traffic to observe, and several module-scoped functions (`checkQueuedImageLoads`, `PATCH_SKIP_REASONS`) aren't reachable from `preview_eval` since `app.js` doesn't expose them on `window` (expected ES-module encapsulation, not a bug). Judged sufficient given the isolated, pattern-consistent nature of each change and the "step away" time constraint.
+
+No unit tests exist in this repo (consistent with all prior sessions) — all verification is DOM/state-runtime via `preview_*` tools or direct diff review.
+
+---
+
 ## 2026-08-05 (later) — Duplicate local checkout deleted
 
 Per explicit user sign-off ("if the interactive customer presentations folder (that doesn't have the 3.0 suffix) is dated and doesn't have anything that this 3.0 one has, then go ahead and delete it"). Before deleting, re-verified the precondition rather than assuming it: `git status` on the non-`3.0` folder showed only 3 dirty/untracked paths (`.claude/launch.json` modified, `.claude/session-state.md` and `HANDOFF.md` untracked) and confirmed via `git log main --not origin/main` that it had zero unique local commits. Content-diffed all 3 files individually — `launch.json`'s diff only redirected preview configs at the `3.0` folder (a workaround for the wrong-cwd preview bug, not unique content); `session-state.md` was empty session-timestamp logging; `HANDOFF.md` was a stale pre-migration doc (dated 2026-07-24, describing the old BYOK/SF-Gateway architecture) already superseded by `3.0`'s own history. Confirmed nothing unique existed.
