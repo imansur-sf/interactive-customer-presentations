@@ -450,6 +450,23 @@
 .stream-item.show { opacity: 1; transform: translateX(0); }
 .stream-item.stream-warn { color: var(--pink, #FF538A); font-weight: 600; }
 
+/* Journey canvas step cards */
+.canvas-step-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid var(--gray-200, #E5E5E5);
+  border-left: 3px solid;
+  border-radius: 8px;
+  opacity: 0.35;
+  transition: opacity 0.3s ease;
+}
+.canvas-step-card.revealed { opacity: 1; }
+.canvas-step-label { font-size: 12px; font-weight: 600; color: var(--text, #1A1D21); }
+.canvas-step-platform { font-size: 11px; color: var(--muted, #5A5C61); margin-left: auto; }
+
 /* ── Progress fill bar ──────────────────────────────────────────── */
 
 .progress-bar-wrap {

@@ -478,7 +478,36 @@
           <!-- Journey steps stream -->
           <div>
             <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--sf-blue);margin-bottom:16px;">Journey Canvas · Generating</div>
-            <div id="s5-canvas" style="display:flex;flex-direction:column;gap:8px;"></div>
+            <div id="s5-canvas" style="display:flex;flex-direction:column;gap:8px;" role="log" aria-live="polite" aria-atomic="false">
+              <div class="canvas-step-card" style="border-left-color:var(--sf-blue-l);">
+                <div class="canvas-step-label">Welcome email</div>
+                <div class="canvas-step-platform">Klaviyo</div>
+              </div>
+              <div class="canvas-step-card" style="border-left-color:var(--sf-blue);">
+                <div class="canvas-step-label">Loyalty tier assign</div>
+                <div class="canvas-step-platform">Salesforce CRM</div>
+              </div>
+              <div class="canvas-step-card" style="border-left-color:var(--teal);">
+                <div class="canvas-step-label">First purchase push</div>
+                <div class="canvas-step-platform">Shopify</div>
+              </div>
+              <div class="canvas-step-card" style="border-left-color:var(--sf-blue-l);">
+                <div class="canvas-step-label">Points balance SMS</div>
+                <div class="canvas-step-platform">Klaviyo</div>
+              </div>
+              <div class="canvas-step-card" style="border-left-color:var(--violet-l);">
+                <div class="canvas-step-label">VIP upgrade check</div>
+                <div class="canvas-step-platform">Data Cloud</div>
+              </div>
+              <div class="canvas-step-card" style="border-left-color:var(--sf-blue);">
+                <div class="canvas-step-label">Reward offer email</div>
+                <div class="canvas-step-platform">Marketing Cloud</div>
+              </div>
+              <div class="canvas-step-card" style="border-left-color:var(--teal-l);">
+                <div class="canvas-step-label">Engagement score</div>
+                <div class="canvas-step-platform">Agentforce</div>
+              </div>
+            </div>
             <div id="s5-complete" style="margin-top:20px;opacity:0;transition:opacity 0.5s ease;">
               <div style="display:flex;align-items:center;gap:10px;padding:14px 18px;background:rgba(6,165,154,0.08);border:1px solid rgba(6,165,154,0.25);border-radius:8px;">
                 <div style="width:10px;height:10px;border-radius:50%;background:var(--teal);flex-shrink:0;"></div>
@@ -559,25 +588,34 @@
           <div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px;">
               <div style="background:var(--sf-navy);border-radius:8px;padding:20px;text-align:center;">
-                <div id="s6-kpi1" style="font-family:var(--font-display);font-size:32px;font-weight:400;color:#fff;">0</div>
+                <div id="s6-kpi1" class="pipeline-kpi" style="font-family:var(--font-display);font-size:32px;font-weight:400;color:#fff;">142,800</div>
                 <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px;">Profiles unified</div>
               </div>
               <div style="background:var(--sf-navy);border-radius:8px;padding:20px;text-align:center;">
-                <div id="s6-kpi2" style="font-family:var(--font-display);font-size:32px;font-weight:400;color:#fff;">0</div>
+                <div id="s6-kpi2" class="pipeline-kpi" style="font-family:var(--font-display);font-size:32px;font-weight:400;color:#fff;">47</div>
                 <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px;">Journeys active</div>
               </div>
               <div style="background:var(--sf-navy);border-radius:8px;padding:20px;text-align:center;">
-                <div id="s6-kpi3" style="font-family:var(--font-display);font-size:32px;font-weight:400;color:#fff;">0</div>
+                <div id="s6-kpi3" class="pipeline-kpi" style="font-family:var(--font-display);font-size:32px;font-weight:400;color:#fff;">3,200</div>
                 <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px;">Events / second</div>
               </div>
               <div style="background:var(--sf-navy);border-radius:8px;padding:20px;text-align:center;">
-                <div id="s6-kpi4" style="font-family:var(--font-display);font-size:32px;font-weight:400;color:var(--teal-l);">0<span style="font-size:16px;">ms</span></div>
+                <div id="s6-kpi4" style="font-family:var(--font-display);font-size:32px;font-weight:400;color:var(--teal-l);"><span class="pipeline-kpi">28</span><span style="font-size:16px;">ms</span></div>
                 <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px;">Avg decision latency</div>
               </div>
             </div>
             <div style="background:var(--sf-navy);border-radius:8px;padding:16px;">
               <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:rgba(255,255,255,0.55);margin-bottom:10px;">Live Event Stream</div>
-              <ul class="stream-list" id="s6-stream"></ul>
+              <ul class="stream-list" id="s6-stream" role="log" aria-live="polite" aria-atomic="false">
+                <li class="stream-item show"><span class="sync-dot" style="background:var(--sf-blue-m);flex-shrink:0;margin-top:2px;"></span>loyalty.member.created — ID 8821</li>
+                <li class="stream-item show"><span class="sync-dot" style="background:var(--sf-blue-m);flex-shrink:0;margin-top:2px;"></span>profile.unified — 4 sources merged</li>
+                <li class="stream-item show"><span class="sync-dot" style="background:var(--sf-blue-m);flex-shrink:0;margin-top:2px;"></span>journey.entry — Loyalty Onboarding</li>
+                <li class="stream-item show"><span class="sync-dot" style="background:var(--sf-blue-m);flex-shrink:0;margin-top:2px;"></span>channel.email.sent — welcome</li>
+                <li class="stream-item show"><span class="sync-dot" style="background:var(--sf-blue-m);flex-shrink:0;margin-top:2px;"></span>segment.matched — Gold Tier eligible</li>
+                <li class="stream-item show"><span class="sync-dot" style="background:var(--sf-blue-m);flex-shrink:0;margin-top:2px;"></span>agent.action — VIP check complete</li>
+                <li class="stream-item stream-warn show"><span class="sync-dot" style="background:var(--pink);flex-shrink:0;margin-top:2px;"></span>WARNING: push token missing</li>
+                <li class="stream-item show"><span class="sync-dot" style="background:var(--sf-blue-m);flex-shrink:0;margin-top:2px;"></span>journey.step 6 — offer email queued</li>
+              </ul>
             </div>
           </div>
         </div>
@@ -1056,16 +1094,6 @@
 
   /* ─── Slide 5 · AI Prompt + Journey Build animation ─────────────── */
   (() => {
-    const STEPS = [
-      { label: 'Welcome email',        platform: 'Klaviyo',         color: 'var(--sf-blue-l)' },
-      { label: 'Loyalty tier assign',  platform: 'Salesforce CRM',  color: 'var(--sf-blue)' },
-      { label: 'First purchase push',  platform: 'Shopify',         color: 'var(--teal)' },
-      { label: 'Points balance SMS',   platform: 'Klaviyo',         color: 'var(--sf-blue-l)' },
-      { label: 'VIP upgrade check',    platform: 'Data Cloud',      color: 'var(--violet-l)' },
-      { label: 'Reward offer email',   platform: 'Marketing Cloud', color: 'var(--sf-blue)' },
-      { label: 'Engagement score',     platform: 'Agentforce',      color: 'var(--teal-l)' },
-    ];
-
     const seq = makeSequence();
     const userEl   = document.getElementById('s5-user');
     const userLive = document.getElementById('s5-user-live');
@@ -1084,14 +1112,18 @@
       userLive.textContent = '';
       botLive.textContent = '';
       stepsEl.innerHTML = '';
-      canvasEl.innerHTML = '';
+      Array.from(canvasEl.children).forEach(card => card.classList.remove('revealed'));
       complete.style.opacity = '0';
-      document.getElementById('s5-play').disabled = false;
+      const playBtn = document.getElementById('s5-play');
+      playBtn.disabled = false;
+      playBtn.innerHTML = '&#9654; Play';
     }
 
     function playS5() {
       resetS5();
-      document.getElementById('s5-play').disabled = true;
+      const playBtn = document.getElementById('s5-play');
+      playBtn.disabled = true;
+      playBtn.textContent = 'Playing…';
       seq.run(async (guard) => {
         // Show user message + type prompt
         userEl.classList.add('show');
@@ -1106,22 +1138,21 @@
         await typeInto(botLive, botEl.querySelector('.type-ghost').textContent);
         await guard(400);
 
-        // Stream build rows + canvas steps
-        for (const step of STEPS) {
+        // Stream build rows + reveal the persistent, user-editable canvas cards
+        const cards = Array.from(canvasEl.children);
+        for (const card of cards) {
+          const label = card.querySelector('.canvas-step-label').textContent;
+          const platform = card.querySelector('.canvas-step-platform').textContent;
+
           const row = document.createElement('div');
           row.className = 'build-row';
-          row.innerHTML = `<span class="build-dot"></span><span style="font-weight:600;color:var(--body);">${step.label}</span> <span style="color:var(--muted);">→ ${step.platform}</span>`;
+          row.innerHTML = `<span class="build-dot"></span><span style="font-weight:600;color:var(--body);">${label}</span> <span style="color:var(--muted);">→ ${platform}</span>`;
           stepsEl.appendChild(row);
           await guard(40);
           row.classList.add('show');
 
-          const card = document.createElement('div');
-          card.style.cssText = `display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fff;border:1px solid var(--gray-200);border-left:3px solid ${step.color};border-radius:8px;opacity:0;transform:translateX(8px);transition:all 0.3s ease;`;
-          card.innerHTML = `<div style="font-size:12px;font-weight:600;color:var(--text);">${step.label}</div><div style="font-size:11px;color:var(--muted);margin-left:auto;">${step.platform}</div>`;
-          canvasEl.appendChild(card);
           await guard(60);
-          card.style.opacity = '1';
-          card.style.transform = 'translateX(0)';
+          card.classList.add('revealed');
 
           // Mark previous build row done
           if (stepsEl.children.length > 1) {
@@ -1169,7 +1200,19 @@
       el.innerHTML = '<span class="sync-dot"></span> Live';
     }
 
-    function resetPipe() {
+    // KPI targets are read from the static markup once, then cached in
+    // dataset.countupTarget so countUp() can overwrite the text mid-animation
+    // and resetPipe() can restore it. app.js clears this cache on manual edit
+    // (see the .pipeline-kpi branch in enterEditMode's onInput handler) so an
+    // edited target isn't reverted by the next Play/Reset cycle.
+    function kpiTarget(el) {
+      if (el.dataset.countupTarget === undefined) {
+        el.dataset.countupTarget = parseFloat(el.textContent.replace(/[^0-9.-]/g, '')) || 0;
+      }
+      return parseFloat(el.dataset.countupTarget);
+    }
+
+    function resetPipe(showRestList = true) {
       seq.abort();
       ['s6-n1','s6-n2','s6-n3','s6-n4'].forEach(id => {
         const n = document.getElementById(id);
@@ -1186,28 +1229,29 @@
         el.classList.remove('live');
         el.innerHTML = `<span class="sync-dot"></span> ${el.dataset.label}`;
       });
-      ['s6-kpi1','s6-kpi2','s6-kpi3','s6-kpi4'].forEach(id => {
-        document.getElementById(id).textContent = '0';
+      ['s6-kpi1','s6-kpi2','s6-kpi3'].forEach(id => {
+        const el = document.getElementById(id);
+        el.textContent = kpiTarget(el).toLocaleString();
       });
-      document.getElementById('s6-kpi4').innerHTML = '0<span style="font-size:16px;">ms</span>';
-      document.getElementById('s6-stream').innerHTML = '';
-      document.getElementById('s6-play').disabled = false;
+      const kpi4Val = document.querySelector('#s6-kpi4 .pipeline-kpi');
+      kpi4Val.textContent = kpiTarget(kpi4Val).toLocaleString();
+      // The event log's <li> items are the persistent, editable source of
+      // truth — Play/Reset just toggle their visibility instead of destroying
+      // and rebuilding them from a hardcoded array, so a manually-edited
+      // event survives the cycle.
+      document.querySelectorAll('#s6-stream .stream-item').forEach(li => {
+        li.classList.toggle('show', showRestList);
+      });
+      const playBtn = document.getElementById('s6-play');
+      playBtn.disabled = false;
+      playBtn.innerHTML = '&#9654; Play';
     }
 
-    const events = [
-      { text: 'loyalty.member.created — ID 8821', cls: '' },
-      { text: 'profile.unified — 4 sources merged', cls: '' },
-      { text: 'journey.entry — Loyalty Onboarding', cls: '' },
-      { text: 'channel.email.sent — welcome', cls: '' },
-      { text: 'segment.matched — Gold Tier eligible', cls: '' },
-      { text: 'agent.action — VIP check complete', cls: '' },
-      { text: 'WARNING: push token missing', cls: 'stream-warn' },
-      { text: 'journey.step 6 — offer email queued', cls: '' },
-    ];
-
     function playS6() {
-      resetPipe();
-      document.getElementById('s6-play').disabled = true;
+      resetPipe(false); // keep the stream blank until the trickle-in below, no flash
+      const playBtn = document.getElementById('s6-play');
+      playBtn.disabled = true;
+      playBtn.textContent = 'Playing…';
       seq.run(async (guard) => {
         // Node 1 active
         document.getElementById('s6-n1').classList.add('active');
@@ -1226,7 +1270,8 @@
         await guard(600);
 
         // Count up KPI 1
-        countUp(document.getElementById('s6-kpi1'), 142800, 1000);
+        const kpi1 = document.getElementById('s6-kpi1');
+        countUp(kpi1, kpiTarget(kpi1), 1000);
         await guard(800);
 
         // Line 2 + packet
@@ -1240,7 +1285,8 @@
         document.getElementById('s6-p2').classList.remove('flowing');
         await guard(600);
 
-        countUp(document.getElementById('s6-kpi2'), 47, 800);
+        const kpi2 = document.getElementById('s6-kpi2');
+        countUp(kpi2, kpiTarget(kpi2), 800);
         await guard(700);
 
         // Line 3 + packet (back — MuleSoft)
@@ -1254,15 +1300,16 @@
         document.getElementById('s6-p3').classList.remove('flowing');
         await guard(600);
 
-        countUp(document.getElementById('s6-kpi3'), 3200, 900);
+        const kpi3 = document.getElementById('s6-kpi3');
+        countUp(kpi3, kpiTarget(kpi3), 900);
         // Latency KPI (just type it)
-        const kpi4 = document.getElementById('s6-kpi4');
-        kpi4.innerHTML = '28<span style="font-size:16px;">ms</span>';
+        const kpi4Val = document.querySelector('#s6-kpi4 .pipeline-kpi');
+        kpi4Val.textContent = kpiTarget(kpi4Val).toLocaleString();
 
-        // Stream events
-        const list = document.getElementById('s6-stream');
-        for (const ev of events) {
-          streamItem(list, `<span class="sync-dot" style="background:${ev.cls ? 'var(--pink)' : 'var(--sf-blue-m)'};flex-shrink:0;margin-top:2px;"></span>${ev.text}`, 6);
+        // Stream events — reveal the static, editable <li> items in sequence
+        const items = document.querySelectorAll('#s6-stream .stream-item');
+        for (const li of items) {
+          li.classList.add('show');
           await guard(600);
         }
 
@@ -1274,7 +1321,7 @@
     }
 
     document.getElementById('s6-play').addEventListener('click', () => playS6());
-    document.getElementById('s6-reset').addEventListener('click', resetPipe);
+    document.getElementById('s6-reset').addEventListener('click', () => resetPipe());
 
     // Auto-play when slide becomes active (same pattern as Architecture Diagram)
     const slide6 = document.querySelector('.slide[data-section="Real-Time Data"]');
