@@ -4,9 +4,29 @@ Chronological record of completed work on the `3.0` app (Heroku + Gemini backend
 
 ---
 
+## 2026-08-05 (later evening) — Export HTML self-containment fix + feedback-widget.js path fix
+
+Commit `7b4136b` (`app.js`), **not yet pushed**. Triggered by the user noticing the exported deck rendered as unstyled plain text when opened outside this app's origin.
+
+**Root cause**: Export HTML built its output from `state.deckDoc.documentElement.outerHTML` verbatim — a `<base href>` tag plus relative `<link>`/`<img>`/`<script>` tags that only resolve while served from this app's own origin (`loadReferenceDeck()`'s `<base>`-relative design, intentional for the *live* app, but never adapted for the *exported* file). Opening the exported HTML from disk, or from any other origin, broke every stylesheet, several images, and scripts.
+
+**Fix**: new `serializeDeckForExport()` async helper, called from a rewritten async `wireTopbar()` export handler:
+- Inlines every `<link rel="stylesheet">` as a `<style>` tag, rewriting internal `url(...)` references (e.g. `@font-face src: url('fonts/...')` in `tokens.css`) to absolute URLs so fonts still resolve once the CSS text is detached from its original file location.
+- Inlines every `<img src>` as a base64 `data:` URI (via `fetch` + `FileReader.readAsDataURL`).
+- Inlines every `<script src>` as an inline `<script>` with the fetched code as `textContent`.
+- Removes the `<base>` tag once all inlining is done.
+- All three inlining passes run concurrently (`Promise.all`); each element degrades independently on fetch failure (`console.warn`, doesn't abort the whole export) rather than crashing.
+- Export button now shows "Exporting…" (disabled) while the async work runs, and a chat error message on total failure.
+
+**Bonus bug found & fixed during verification**: `serializeDeckForExport()`'s own error logging surfaced a pre-existing, unrelated 404 — `feedback-widget.js` was 404ing on **every** deck load (not just export), because `loadReferenceDeck()`'s path-rewrite list (which prefixes `tokens.css`/`components.css`/`animation.css`/`animation-interactions.css`/`animation.js` with `assets/`) was missing a rule for `feedback-widget.js`. Confirmed via `preview_network` that the unprefixed request 404'd on the live app, not just in the export path. Fixed with one added `.replace(...)` rule in the same chain.
+
+**Verification** (`preview_*` tools only): monkey-patched `URL.createObjectURL`/`HTMLAnchorElement.prototype.click` via `preview_eval` to capture the exported Blob without triggering a real download dialog (needed since `app.js` is an ES module — its functions aren't reachable on `window`). Confirmed on the captured export: `hasBaseTag: false`, `hasLinkStylesheet: false`, `scriptSrcTagCount: 0`, `inlineScriptCount: 4` (up from 3 pre-fix — `feedback-widget.js` now inlines too), `nonDataImgCount: 0`, `styleTagCount: 6`. Confirmed via `preview_network` (full request list, not just the failed-filter view, since the tool's log accumulates across reloads rather than clearing) that the live app now requests `assets/feedback-widget.js` → `200 OK` instead of `feedback-widget.js` → `404`.
+
+---
+
 ## 2026-08-05 (evening) — Full UX-improvement backlog + animated-slide editability part B
 
-Per explicit instruction ("Work on all of it. I'm going to step away for a few hours. I'll review what you've done when I return and push."). Covers all 12 items tracked since the prior sessions' UX-improvement analysis and animated-slide-editability plan — nothing deferred. **Not pushed** — committed locally only, per the standing "ask before pushing" directive; the "step away" instruction authorized independent implementation but not an unprompted push.
+Per explicit instruction ("Work on all of it. I'm going to step away for a few hours. I'll review what you've done when I return and push."). Covers all 12 items tracked since the prior sessions' UX-improvement analysis and animated-slide-editability plan — nothing deferred. Committed locally per the standing "ask before pushing" directive (the "step away" instruction authorized independent implementation but not an unprompted push); **pushed** on the user's explicit instruction after review (see the "2026-08-05 (later evening)" entry above).
 
 **Commit `11dd5ab`** — "Fix silent failures, edit-mode leak, and error leakage; add a11y and progress feedback" (`app.js`, `llm.js`, `interview.js`, `index.html`). 11 of the 12 backlog items:
 - Image-swap `onerror`/`naturalWidth` check now warns in chat on a failed load instead of leaving a dead icon with a "success" badge.

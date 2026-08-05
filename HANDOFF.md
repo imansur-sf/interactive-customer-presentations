@@ -1,17 +1,19 @@
 # ICP Session Handoff (3.0)
 
-Last updated: 2026-08-05, evening (all 12 UX-improvement-backlog items, including animated-slide editability part B, implemented and committed locally — **not yet pushed**, awaiting the user's return). **Read this first — do not re-read prior conversation summaries.** For a detailed history of completed work, see [PROGRESS.md](PROGRESS.md); this file is only current state + what's left.
+Last updated: 2026-08-05, later evening (the 12-item UX-improvement backlog, including animated-slide editability part B, is pushed; Export HTML self-containment fix is committed locally, **not yet pushed**, awaiting explicit push instruction). **Read this first — do not re-read prior conversation summaries.** For a detailed history of completed work, see [PROGRESS.md](PROGRESS.md); this file is only current state + what's left.
 
 ## Where we are
 
 - **Working directory**: `/Users/imansur/claude/interactive-customer-presentations 3.0` (fresh clone of `imansur-sf/interactive-customer-presentations`).
 - **Branch**: `main`.
-- **Latest local commit**: `0f9183c` ("Make AI-in-Action and Real-Time-Data animations edit-safe (part B)"), on top of `11dd5ab` ("Fix silent failures, edit-mode leak, and error leakage; add a11y and progress feedback"). **Both are unpushed** — the user asked to step away and review/push personally on return; do not push these without a fresh, explicit instruction. Working tree is otherwise clean (only the hook-managed `.claude/session-state.md` is untracked, intentionally left that way).
+- **Pushed**: `11dd5ab` ("Fix silent failures, edit-mode leak, and error leakage; add a11y and progress feedback"), `0f9183c` ("Make AI-in-Action and Real-Time-Data animations edit-safe (part B)"), `f102421` (docs reconciliation) — the full 12-item backlog, reviewed and pushed by the user on return.
+- **Latest local commit**: `7b4136b` ("Make Export HTML self-contained; fix feedback-widget.js path") — inlines stylesheets/images/scripts into exported decks so they render standalone (not served from this app's origin), plus a one-line fix for a pre-existing `feedback-widget.js` 404 on every deck load. **Unpushed** — do not push without a fresh, explicit instruction. Working tree is otherwise clean (only the hook-managed `.claude/session-state.md` is untracked, intentionally left that way).
 - The `2.0` folder and the original `/Users/imansur/claude/interactive-customer-presentations` folder are both retired. `3.0` is the sole working copy. (The non-3.0 folder's content is deleted; an empty shell containing only `.claude`/`.git` remains on disk at that path — the sandbox refuses to let an agent remove its own control/git directories, even from a different session's working directory. Harmless; remove manually outside a Claude session if you want it fully gone.)
 - **Deployment**: Heroku is the actual UI/runtime layer for this app (and this app's family of projects). GitHub Pages is NOT used for ICP — it's only relevant to a separate, unrelated "Sassy Solutions website" project. Don't conflate the two.
 - Manual click-to-edit-text fallback (contenteditable leaf text, bypasses the LLM entirely), icon/image replacement (click-to-upload + chat-URL), slide reordering (drag-to-reorder nav), the Hero KPI countUp-cache fix, and the AI-in-Action/Real-Time-Data desync fix (part A) are all implemented, live-verified, and pushed from prior sessions. See PROGRESS.md for full detail on each.
-- The full UX-improvement backlog (12 items) is now **implemented and committed, but unpushed** — see PROGRESS.md's latest entry ("2026-08-05 (evening)") for the full breakdown. This includes animated-slide editability **part B**, which was implemented without the design check-in a prior handoff called for, since the user was unavailable — see that same PROGRESS.md entry for the rationale.
-- **No open backlog items remain.** Next session's job (once the user has reviewed/pushed) is likely just to watch for regressions and pick up whatever the user flags after review.
+- The full UX-improvement backlog (12 items) is **implemented, committed, and pushed** — see PROGRESS.md's "2026-08-05 (evening)" entry for the full breakdown. This includes animated-slide editability **part B**, which was implemented without the design check-in a prior handoff called for, since the user was unavailable — see that same PROGRESS.md entry for the rationale.
+- **Export HTML self-containment fix** (see PROGRESS.md's "2026-08-05 (later evening)" entry) is implemented, live-verified, and committed (`7b4136b`) but **not yet pushed** — awaiting explicit push instruction.
+- **No open backlog items remain** beyond pushing `7b4136b`. Next session's job is likely just to watch for regressions and pick up whatever the user flags after review.
 
 ## Resolved findings (2026-08-04)
 
@@ -57,11 +59,11 @@ Local backend-capable dev server: `node server.js` with `GEMINI_API_KEY` set (se
 
 1. **Testing-methodology note**: `preview_click` has intermittently reported success on a target with zero observable effect in past sessions (suspected coordinate/overlap issue) — reconfirmed again this session on `#scope-chip-edit`. This is a caution about the Browser preview MCP tool itself, not an app-code bug — no specific reproducible element was ever pinned down. **Confirmed workaround**: `preview_eval` with `document.getElementById(...).click()` — validated working every time it's been tried.
 
-2. **Push is pending user review.** `11dd5ab` and `0f9183c` (see "Where we are") implement the entire prior backlog, including animated-slide editability part B done without its originally-planned design check-in — the user should look these over, especially the S5/S6 visual behavior, before they're pushed.
+2. **`7b4136b` (Export HTML fix) is pending push.** Implemented and live-verified (see PROGRESS.md's "2026-08-05 (later evening)" entry) but not pushed — ask for explicit confirmation before pushing, per standing directive #3 below.
 
 ## What to do next session
 
-1. **Confirm the user has reviewed/pushed `11dd5ab`/`0f9183c` before treating this backlog as closed** — if not yet pushed, that's still this session's first job (ask, don't assume).
+1. **Confirm whether `7b4136b` should be pushed** — that's this session's first job if it hasn't been addressed yet (ask, don't assume).
 2. No known open backlog items. If the user raises new findings after reviewing this session's work (especially around the S5/S6 animated-slide changes, since those shipped without a design check-in), triage those first.
 3. If a new bug report comes in with reason string `css_leak_blocked` or `slide_element_protected`, re-check `llm.js`'s guard chain first since those are the two guards with known false-positive history.
 
