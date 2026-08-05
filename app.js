@@ -82,7 +82,8 @@ async function loadReferenceDeck() {
     .replace(/(href|src)="components\.css"/g,              '$1="assets/components.css"')
     .replace(/(href|src)="animation\.css"/g,               '$1="assets/animation.css"')
     .replace(/(href|src)="animation-interactions\.css"/g,  '$1="assets/animation-interactions.css"')
-    .replace(/(href|src)="animation\.js"/g,                '$1="assets/animation.js"');
+    .replace(/(href|src)="animation\.js"/g,                '$1="assets/animation.js"')
+    .replace(/(href|src)="feedback-widget\.js"/g,           '$1="assets/feedback-widget.js"');
 
   const parser = new DOMParser();
   const doc = parser.parseFromString(rewritten, 'text/html');
@@ -1513,18 +1514,98 @@ function wireNavFooter() {
 }
 
 // ------------------------------------------------------------------ Topbar
+// Inlines stylesheets/images/scripts (currently loaded via <base>-relative
+// <link>/<img>/<script> tags) so the exported file still renders once it's
+// no longer served from this app's origin — e.g. opened directly from disk.
+async function serializeDeckForExport() {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(state.deckDoc.documentElement.outerHTML, 'text/html');
+  const baseHref = doc.querySelector('base')?.getAttribute('href') || window.location.href;
+  const resolve = (url, from = baseHref) => new URL(url, from).href;
+
+  const inlineStylesheets = Array.from(doc.querySelectorAll('link[rel="stylesheet"]')).map(async link => {
+    const href = link.getAttribute('href');
+    if (!href) return;
+    try {
+      const res = await fetch(resolve(href));
+      if (!res.ok) throw new Error(String(res.status));
+      let css = await res.text();
+      css = css.replace(/url\((['"]?)([^'")]+)\1\)/g, (match, quote, path) => {
+        if (/^(data:|https?:|\/\/)/.test(path)) return match;
+        return `url(${quote}${resolve(path, resolve(href))}${quote})`;
+      });
+      const style = doc.createElement('style');
+      style.textContent = css;
+      link.replaceWith(style);
+    } catch (err) {
+      console.warn('export: failed to inline stylesheet', href, err);
+    }
+  });
+
+  const inlineImages = Array.from(doc.querySelectorAll('img[src]')).map(async img => {
+    const src = img.getAttribute('src');
+    if (!src || /^(data:|https?:)/.test(src)) return;
+    try {
+      const res = await fetch(resolve(src));
+      if (!res.ok) throw new Error(String(res.status));
+      const blob = await res.blob();
+      const dataUrl = await new Promise((resolveP, rejectP) => {
+        const reader = new FileReader();
+        reader.onload = () => resolveP(reader.result);
+        reader.onerror = () => rejectP(reader.error);
+        reader.readAsDataURL(blob);
+      });
+      img.setAttribute('src', dataUrl);
+    } catch (err) {
+      console.warn('export: failed to inline image', src, err);
+    }
+  });
+
+  const inlineScripts = Array.from(doc.querySelectorAll('script[src]')).map(async script => {
+    const src = script.getAttribute('src');
+    if (!src || /^(data:|https?:)/.test(src)) return;
+    try {
+      const res = await fetch(resolve(src));
+      if (!res.ok) throw new Error(String(res.status));
+      const code = await res.text();
+      const inline = doc.createElement('script');
+      inline.textContent = code;
+      script.replaceWith(inline);
+    } catch (err) {
+      console.warn('export: failed to inline script', src, err);
+    }
+  });
+
+  await Promise.all([...inlineStylesheets, ...inlineImages, ...inlineScripts]);
+  doc.querySelector('base')?.remove();
+
+  return '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+}
+
 function wireTopbar() {
-  document.getElementById('btn-export').addEventListener('click', () => {
+  const exportBtn = document.getElementById('btn-export');
+  exportBtn.addEventListener('click', async () => {
     if (!state.deckDoc) return;
-    const html = '<!DOCTYPE html>\n' + state.deckDoc.documentElement.outerHTML;
-    const blob = new Blob([html], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    const customer = state.answers?.customer;
-    a.download = customer ? `deck-${slugify(customer)}.html` : 'deck.html';
-    a.click();
-    URL.revokeObjectURL(url);
+    const originalText = exportBtn.textContent;
+    exportBtn.disabled = true;
+    exportBtn.textContent = 'Exporting…';
+    try {
+      const html = await serializeDeckForExport();
+      const blob = new Blob([html], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const customer = state.answers?.customer;
+      a.download = customer ? `deck-${slugify(customer)}.html` : 'deck.html';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('export failed', err);
+      appendMessage('assistant', '⚠️ Something went wrong exporting the deck. Please try again.');
+    } finally {
+      exportBtn.disabled = false;
+      exportBtn.textContent = originalText;
+    }
   });
 }
 
