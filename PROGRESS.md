@@ -4,6 +4,31 @@ Chronological record of completed work on the `3.0` app (Heroku + Gemini backend
 
 ---
 
+## 2026-08-05 — UX-improvement analysis (ideas only, nothing implemented)
+
+Per user request ("start doing an analysis to see if there's any other ideas you can come up with to improve the overall user experience"), following the slide-reordering/Hero-KPI/desync-fix session below. A background code-and-doc-based audit agent was run against this (`3.0`) codebase, briefed to read HANDOFF.md/PROGRESS.md first and skip anything already resolved. **No live-browser walkthrough was performed** — see HANDOFF.md's "Duplicate local checkout" open item for why (this session's preview tooling was defaulting to a stale, 74-commits-behind second local clone). Findings below are code-citation-backed but not click-tested; treat as ideas to triage, not verified bugs.
+
+**Higher-priority (small fix, real UX or correctness payoff):**
+- **Broken image swaps fail silently.** No `onerror`/`naturalWidth` check exists anywhere a `src` gets swapped (`app.js` `applyAccentAndCobrand`, `scrapeLogoBackground`, the `file-upload`/`icon-upload` handlers, or AI-driven `set-attribute` patches) — the "Applied N of M" badge can say success while a dead icon renders, with zero chat feedback.
+- **Scoped chat edits don't call `exitEditMode()` before firing.** `sendScopedEdit` (`app.js`) leaves contenteditable live through the LLM round-trip; a manual edit landing during that window can be silently clobbered when the AI patch resolves against a `deckEl` reference captured earlier. Every other entry point into editing (slide-select, drag-reorder) already guards this — this one path doesn't.
+- **Raw internal errors can leak into the chat mid-demo.** `llm.js`'s `unknown_op:${op}` and generic `e.message` catch-alls aren't registered in `app.js`'s `PATCH_SKIP_REASONS` map, so the fallback renders the raw string verbatim — potentially a JS stack-trace fragment in front of a customer.
+- **Interview validation gives zero feedback.** A missing required field just leaves Next disabled (dimmed) with no highlight or message — a rep who missed one field on a multi-field question sees total silence on click.
+- **Inconsistent upload confirmation.** Logo swap posts "✅ Logo updated!" to chat; the parallel in-slide icon swap does the identical class of action with no chat feedback at all.
+- **Drag handle is nearly invisible** (`⠿` at `rgba(0,30,91,0.28)`, no hover-brightening) — a real discoverability gap for the just-shipped slide-reorder feature.
+- **Play/Reset give no in-progress signal.** Play only dims slightly during an 8+ second animation and never relabels to "Replay" after autoplay has already run once; Reset looks identical whether idle or mid-flight.
+
+**Medium (real value, more surface area):**
+- **Mouse-only interaction.** `.nav-item` has no `tabindex`/`role`/keydown handling — slide selection itself, not just drag-reorder, is unusable via keyboard. Drag-reorder also has no touch fallback, so it's unusable on mobile/tablet.
+- **No `aria-live` anywhere** — chat log, busy spinner, animation progress are all silent to screen readers.
+- **Dead air during long generations.** SSE heartbeats are explicitly discarded client-side; a generation can sit on a static "Generating deck…" label for up to ~5.5 minutes with no elapsed-time or progress signal.
+- **Chat-URL image-swap has zero onboarding.** It's a real, working capability (routes through the LLM patch pipeline) that a rep would only ever discover by accident.
+
+**Deferred / already tracked elsewhere:** animated-slide editability part B (STEPS/events/countUp arrays) — unchanged, see HANDOFF.md.
+
+Full 8-category breakdown (discoverability, error/failure, feedback/affordance, flow friction, consistency, mobile, accessibility, animated-slide UX) with exact file/line citations is in the session transcript if deeper detail is needed later; the above is the prioritized digest.
+
+---
+
 ## 2026-08-04/05 — Slide reordering, Hero KPI cache-staleness fix, AI-in-Action/Real-Time-Data desync fix (part A)
 
 Autonomous follow-through session executing the three items planned-but-not-built in the entry below, plus the Hero KPI bug root-caused there. All three are live-verified via `preview_*` tools.
