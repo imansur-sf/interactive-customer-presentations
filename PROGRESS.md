@@ -4,6 +4,39 @@ Chronological record of completed work on the `3.0` app (Heroku + Gemini backend
 
 ---
 
+## 2026-08-04/05 — Slide reordering, Hero KPI cache-staleness fix, AI-in-Action/Real-Time-Data desync fix (part A)
+
+Autonomous follow-through session executing the three items planned-but-not-built in the entry below, plus the Hero KPI bug root-caused there. All three are live-verified via `preview_*` tools.
+
+**1. Slide reordering.** Drag-to-reorder added to the right-nav list (`app.js` `renderNav()`), reusing the existing `applyDeckTypeLayout()` reorder-and-refresh primitive (`appendChild` in new order → `enumerateSlides()` → `renderNav()` → `rerenderPreview()`). Native HTML5 drag-and-drop (`dragstart`/`dragover`/`drop`/`dragend`), no library. Index `0` ("Hero") and the last index ("Thank You") are non-draggable and non-droppable-onto, preserving the `SLIDE_LABEL_OVERRIDES` position invariant. `exitEditMode()` called defensively on `dragstart`.
+
+**2. Hero KPI countUp-cache-staleness fix.** Root cause (previous session): `playHeroCountUp()` (`skill-context/sf-composer.html`) caches each KPI's parsed numeric target in `dataset.countupTarget` on first play and never invalidates it, so a `MutationObserver`-triggered replay on every re-navigation to Hero always re-animates toward the stale pre-edit value, silently discarding manual edits. Fix: `app.js`'s `enterEditMode()` `onInput` handler now deletes `dataset.countupTarget` from both the iframe element and its `deckDoc` counterpart whenever an edit lands inside a `.hero-kpi-card`, forcing the next replay to re-parse the user's new text. Verified live: edited a KPI value, navigated away and back, confirmed the edited value persists instead of reverting.
+
+**3. AI-in-Action / Real-Time-Data slide desync — part A (make static HTML the source of truth for animation scripts; part B — new UI for JS-only arrays like `STEPS`/`events` — remains explicitly out of scope, see HANDOFF.md item 3).**
+   - Slide 5 (`playS5()`, `sf-composer.html`): now reads `.type-ghost.textContent` for both the user and bot chat lines instead of hardcoded literals passed to `typeInto()`. Verified via a `typeInto` call-interception technique (monkey-patching `win.typeInto` on the iframe's `contentWindow` to capture arguments synchronously, since `typeInto`/`countUp`/etc. are `requestAnimationFrame`-driven and stall in this headless preview environment — see HANDOFF.md's testing-methodology note): confirmed the original ghost text is passed correctly, and that editing the ghost text changes what's passed, proving live-read behavior rather than coincidence.
+   - Slide 6 (`sf-composer.html`): sync-indicator labels are now snapshotted once into `dataset.label` at script-init time and `resetPipe()` restores from that snapshot instead of a hardcoded `labels` array. Verified the snapshot correctly captures original labels even after `goLive()` has already mutated some indicators' visible text.
+   - **Extended fix found during verification** (same caching-staleness class as the Hero KPI bug, in-scope as completing part A's desync mandate): the slide-6 snapshot alone doesn't help a *manual* edit — without an app.js-side refresh, editing a sync-indicator's label would sync to `deckDoc` correctly but leave `dataset.label` stale, so the next navigation's `resetPipe()` call would silently discard the edit. Fixed in the same `onInput` handler as the Hero KPI fix: whenever an edit lands on a `.sync-indicator`, refreshes `dataset.label` on both the iframe element and `deckDoc` to the new edited text.
+   - Verified live end-to-end: entered edit mode (via the `preview_eval`+`.click()` workaround for `preview_click`'s intermittent no-op issue — see HANDOFF.md item 1), edited a sync-indicator's label, confirmed `dataset.label` updated immediately, exited edit mode, clicked Reset (no iframe reload) and confirmed the edit persisted rather than reverting to "Waiting for sync", clicked Play and confirmed `dataset.label` stayed correct even while `goLive()` transiently overwrote the visible text to "Live", then clicked Reset again post-Play and confirmed the label correctly restored to the edited value (not "Live", not the stale original). Test edit cleaned up afterward.
+
+All three fixes are in-memory/DOM-runtime verified only; no unit tests exist in this repo (consistent with all prior sessions).
+
+---
+
+## 2026-08-04 — Icon/image replacement (click + chat-URL); slide-reorder & animated-slide editability plans (not yet built, uncommitted)
+
+**Icon/image replacement, two entry points, both live-verified:**
+1. **Click-to-upload.** `editableImgEls()` (app.js) finds candidate `<img>`s in the active slide; clicking one sets `state.pendingImageSwap = { iframeEl, deckEl }` and opens the hidden `#icon-upload` file input. Its `change` handler reads the picked file, swaps `src` on both the live iframe element and the `deckDoc` source-of-truth element (so Export/re-render stay correct), then clears `pendingImageSwap`.
+2. **Chat URL.** No new app.js code needed — routes entirely through the existing LLM patch pipeline. Added an "ICON/IMAGE REPLACEMENT" instruction to both the edit-turn and freeform-turn prompts (`buildTurnPrompt`, llm.js) telling the model to emit `op: "set-attribute"` with a `::attr(src)`-suffixed selector (never `op: "replace"`) when the user supplies a URL.
+3. **Guard-chain support for the new op path** (llm.js `applyPatches`): fixed a pre-existing bug where the `::attr(...)`/`::style(...)` DSL suffix was never stripped before `querySelector`/`matches` — every `set-attribute`/`set-style` patch was silently throwing a `SyntaxError` and getting skipped. Added `copyright_protected` (`[data-copyright]`) and `brand_logo_protected` (`[data-brand-logo]`) guards so chat-driven image swaps can't touch the app's own attribution/branding. Restricted `set-attribute` on `<img src>` to `http(s)://`/`data:image/` URLs only (`unsafe_image_src` skip reason) so a chat message can't smuggle in a `javascript:`/other unsafe scheme.
+
+**Live-verified** via `preview_*` tools: clicked an icon → file picker → uploaded a local image → swap appeared in the iframe; sent a chat message with an image URL → patch applied, `<img src>` updated; confirmed Export HTML carries the swapped `src` (proves the `deckDoc` write, not just the iframe's throwaway copy).
+
+**Slide reordering** and **full editability of the "AI in Action"/"Real-Time Data" animated slides** were investigated and planned this session per explicit user request, but deliberately **not implemented** — see HANDOFF.md's "Open items carried forward" for the concrete, ready-to-build plans for both.
+
+**Also this session**: user reported that editing a Hero-slide KPI value (e.g. "360°") via manual-edit-mode reverts to its original value after navigating away and back. Investigated and root-caused (not fixed): `skill-context/sf-composer.html`'s `playHeroCountUp()` caches each KPI's parsed numeric target in `dataset.countupTarget` on first play and never invalidates it; a `MutationObserver` re-triggers the animation on every re-navigation to Hero (no iframe reload), so it always replays toward the stale pre-edit cached target. Distinct from the earlier `7dca674` fix, which addressed replay-race visual corruption, not this edit-loss issue. Root cause and proposed fix documented in HANDOFF.md's "Open items carried forward" #4.
+
+---
+
 ## 2026-08-04 — CSS-leak guard fix + "How It Works" personalization (verified live)
 
 **Problem reported by user**: a real end-to-end test (fresh interview → generate deck, real Gemini backend) returned "Applied 10 of 14 – 4 skipped." Slide 4 ("How It Works") wasn't personalizing to the customer's actual systems, and a freeform-chat edit renaming a connector label ("Journey JSON" → "Real-time API") was silently skipped with reason "patch contained raw CSS instead of content" — even though a sibling edit (renaming a node) on the same slide worked fine.

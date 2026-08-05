@@ -390,6 +390,25 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    .nav-item .drag-handle {
+      flex-shrink: 0;
+      width: 14px;
+      text-align: center;
+      color: rgba(0, 30, 91, 0.28);
+      cursor: grab;
+      font-size: 13px;
+      line-height: 1;
+    }
+    .nav-item.pinned {
+      cursor: pointer;
+    }
+    .nav-item.dragging {
+      opacity: 0.4;
+    }
+    .nav-item.drag-over {
+      background: rgba(2, 42, 192, 0.16);
+      box-shadow: inset 0 2px 0 var(--sf-blue, #022AC0);
+    }
 
     .nav-footer {
       border-top: 1px solid rgba(0,30,91,0.06);

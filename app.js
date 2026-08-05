@@ -149,17 +149,87 @@ function enumerateSlides() {
 function renderNav() {
   const list = document.getElementById('nav-list');
   list.innerHTML = '';
+  const lastIdx = state.slides.length - 1;
   state.slides.forEach((slide) => {
+    const pinned = slide.idx === 0 || slide.idx === lastIdx;
     const item = document.createElement('div');
-    item.className = 'nav-item';
+    item.className = 'nav-item' + (pinned ? ' pinned' : '');
     item.dataset.slideIdx = String(slide.idx);
     item.innerHTML = `
+      ${pinned ? '' : '<div class="drag-handle" title="Drag to reorder">⠿</div>'}
       <div class="idx">${slide.idx + 1}</div>
       <div class="label" title="${escapeAttr(slide.label)}">${escapeHtml(slide.label)}</div>
     `;
     item.addEventListener('click', () => selectSlide(slide.idx));
+
+    if (!pinned) {
+      item.draggable = true;
+      item.addEventListener('dragstart', (e) => {
+        if (state.editMode) exitEditMode();
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(slide.idx));
+        item.classList.add('dragging');
+      });
+      item.addEventListener('dragend', () => {
+        item.classList.remove('dragging');
+        list.querySelectorAll('.nav-item.drag-over').forEach((el) => el.classList.remove('drag-over'));
+      });
+      item.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        item.classList.add('drag-over');
+      });
+      item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
+      item.addEventListener('drop', (e) => {
+        e.preventDefault();
+        item.classList.remove('drag-over');
+        const fromIdx = Number(e.dataTransfer.getData('text/plain'));
+        reorderSlide(fromIdx, slide.idx);
+      });
+    }
+
     list.appendChild(item);
   });
+}
+
+// Move the slide at fromIdx to toIdx among the currently visible slides.
+// Hero (index 0) and Thank You (last index) are pinned and cannot be moved
+// or dropped onto — mirrors SLIDE_LABEL_OVERRIDES' position-based invariant.
+function reorderSlide(fromIdx, toIdx) {
+  const lastIdx = state.slides.length - 1;
+  if (fromIdx === toIdx) return;
+  if (fromIdx <= 0 || fromIdx >= lastIdx || toIdx <= 0 || toIdx >= lastIdx) return;
+
+  if (state.editMode) exitEditMode();
+
+  const activeSlideId = state.activeSlideIdx != null ? state.slides[state.activeSlideIdx]?.id : null;
+  const scopedSlideId = state.scope != null ? state.slides[state.scope]?.id : null;
+
+  const slideEls = state.slides.map((s) => state.deckDoc.getElementById(s.id));
+  const container = slideEls[0]?.parentElement;
+  if (!container) return;
+
+  const [moved] = slideEls.splice(fromIdx, 1);
+  slideEls.splice(toIdx, 0, moved);
+  slideEls.forEach((el) => container.appendChild(el));
+
+  enumerateSlides();
+  renderNav();
+
+  if (activeSlideId) {
+    const newIdx = state.slides.findIndex((s) => s.id === activeSlideId);
+    if (newIdx >= 0) state.activeSlideIdx = newIdx;
+  }
+  state.scope = scopedSlideId ? state.slides.findIndex((s) => s.id === scopedSlideId) : null;
+  if (state.scope === -1) state.scope = null;
+
+  if (state.activeSlideIdx != null) {
+    document.querySelectorAll('.nav-item').forEach((el) => {
+      el.classList.toggle('active', Number(el.dataset.slideIdx) === state.activeSlideIdx);
+    });
+  }
+
+  rerenderPreview();
 }
 
 function mountPreview() {
@@ -249,7 +319,27 @@ function enterEditMode() {
     if (!deckEl) return;
     iframeEl.setAttribute('contenteditable', 'true');
 
-    const onInput = () => { deckEl.innerHTML = iframeEl.innerHTML; };
+    const onInput = () => {
+      deckEl.innerHTML = iframeEl.innerHTML;
+      // Hero KPI values are cached once by playHeroCountUp() (sf-composer.html)
+      // so replays don't re-parse a mid-animation number. That cache goes stale
+      // the moment the user edits the value manually — clear it here so the
+      // next replay re-parses the user's new text instead of reverting to it.
+      if (iframeEl.closest('.hero-kpi-card')) {
+        delete iframeEl.dataset.countupTarget;
+        delete deckEl.dataset.countupTarget;
+      }
+      // Real-Time Data sync-indicator labels are snapshotted once into
+      // dataset.label at slide load (sf-composer.html resetPipe()) so a
+      // Play/Reset cycle can restore them after goLive() overwrites the text
+      // to "Live". Refresh that snapshot on edit so Reset restores the
+      // user's new label instead of the stale pre-edit one.
+      if (iframeEl.classList.contains('sync-indicator')) {
+        const label = iframeEl.textContent.trim();
+        iframeEl.dataset.label = label;
+        deckEl.dataset.label = label;
+      }
+    };
     const onPaste = (e) => {
       e.preventDefault();
       const text = e.clipboardData?.getData('text/plain') ?? '';

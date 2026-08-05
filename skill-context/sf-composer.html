@@ -1096,14 +1096,14 @@
         // Show user message + type prompt
         userEl.classList.add('show');
         await guard(300);
-        await typeInto(userLive, 'Onboard a new loyalty member — we use Salesforce, Shopify, and Klaviyo');
+        await typeInto(userLive, userEl.querySelector('.type-ghost').textContent);
         await guard(500);
 
         // Show bot label + message shell
         botLabel.style.opacity = '1';
         botEl.classList.add('show');
         await guard(300);
-        await typeInto(botLive, 'Building your 7-step loyalty onboarding journey across Salesforce, Shopify, and Klaviyo…');
+        await typeInto(botLive, botEl.querySelector('.type-ghost').textContent);
         await guard(400);
 
         // Stream build rows + canvas steps
@@ -1155,6 +1155,14 @@
   (() => {
     const seq = makeSequence();
 
+    // Snapshot each indicator's static label once at load, before goLive()
+    // ever overwrites it — resetPipe() restores this instead of a hardcoded
+    // literal, so a manually-edited label survives Play/Reset cycles.
+    ['s6-sync1','s6-sync2','s6-sync3','s6-sync4'].forEach(id => {
+      const el = document.getElementById(id);
+      el.dataset.label = el.textContent.trim();
+    });
+
     function goLive(syncId) {
       const el = document.getElementById(syncId);
       el.classList.add('live');
@@ -1173,11 +1181,10 @@
       ['s6-p1','s6-p2','s6-p3'].forEach(id => {
         document.getElementById(id).classList.remove('flowing');
       });
-      ['s6-sync1','s6-sync2','s6-sync3','s6-sync4'].forEach((id, i) => {
+      ['s6-sync1','s6-sync2','s6-sync3','s6-sync4'].forEach((id) => {
         const el = document.getElementById(id);
         el.classList.remove('live');
-        const labels = ['Waiting for sync','Idle','Idle','Standby'];
-        el.innerHTML = `<span class="sync-dot"></span> ${labels[i]}`;
+        el.innerHTML = `<span class="sync-dot"></span> ${el.dataset.label}`;
       });
       ['s6-kpi1','s6-kpi2','s6-kpi3','s6-kpi4'].forEach(id => {
         document.getElementById(id).textContent = '0';
