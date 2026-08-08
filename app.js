@@ -58,6 +58,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   wireNavFooter();
   try {
     await loadReferenceDeck();
+    await hydrateFromProjectId();
   } catch (err) {
     console.error('boot_failed', err);
     document.getElementById('preview-empty').innerHTML =
@@ -1607,6 +1608,179 @@ function wireTopbar() {
       exportBtn.textContent = originalText;
     }
   });
+
+  const cloudyBtn = document.getElementById('btn-export-cloudy');
+  cloudyBtn.addEventListener('click', async () => {
+    if (!state.deckDoc) return;
+    const originalText = cloudyBtn.textContent;
+    cloudyBtn.disabled = true;
+    cloudyBtn.textContent = 'Exporting…';
+    try {
+      const html = await serializeDeckForExport();
+      const blob = new Blob([html], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const customer = state.answers?.customer;
+      a.download = customer ? `deck-${slugify(customer)}.html` : 'deck.html';
+      a.click();
+      URL.revokeObjectURL(url);
+      window.open('https://sfdc.co/cloudy', '_blank', 'noopener');
+      appendMessage('assistant', 'Downloaded! Sign in via SSO at sfdc.co/cloudy, then drag your file in.');
+    } catch (err) {
+      console.error('cloudy export failed', err);
+      appendMessage('assistant', '⚠️ Something went wrong exporting the deck. Please try again.');
+    } finally {
+      cloudyBtn.disabled = false;
+      cloudyBtn.textContent = originalText;
+    }
+  });
+
+  document.getElementById('btn-auth').addEventListener('click', onAuthButtonClick);
+  document.getElementById('btn-my-projects').addEventListener('click', openMyProjects);
+  document.getElementById('btn-close-my-projects').addEventListener('click', closeMyProjects);
+  document.getElementById('btn-save-project').addEventListener('click', saveCurrentProject);
+  syncAuthUI();
+}
+
+// ------------------------------------------------------------------ Saasy auth / save projects
+const SAASY_TOOL = 'icp';
+let currentProjectId = null;
+
+function syncAuthUI() {
+  if (!window.SaasyAuth) return;
+  const btn = document.getElementById('btn-auth');
+  const emailEl = document.getElementById('auth-email');
+  if (SaasyAuth.isSignedIn()) {
+    btn.textContent = 'Sign Out';
+    emailEl.textContent = SaasyAuth.getEmail();
+    emailEl.classList.remove('hidden');
+  } else {
+    btn.textContent = 'Sign In';
+    emailEl.classList.add('hidden');
+  }
+}
+
+async function onAuthButtonClick() {
+  if (!window.SaasyAuth) return;
+  if (SaasyAuth.isSignedIn()) {
+    SaasyAuth.signOut();
+    syncAuthUI();
+    return;
+  }
+  try {
+    await SaasyAuth.signIn();
+    syncAuthUI();
+  } catch (err) {
+    // user cancelled sign-in
+  }
+}
+
+async function saveCurrentProject() {
+  if (!window.SaasyAuth || !state.deckDoc) return;
+  if (!SaasyAuth.isSignedIn()) {
+    try { await SaasyAuth.signIn(); syncAuthUI(); } catch (err) { return; }
+  }
+  const saveBtn = document.getElementById('btn-save-project');
+  const originalText = saveBtn.textContent;
+  saveBtn.disabled = true;
+  saveBtn.textContent = 'Saving…';
+  try {
+    const deckHtml = '<!DOCTYPE html>\n' + state.deckDoc.documentElement.outerHTML;
+    const name = state.answers?.customer || 'Untitled Deck';
+    const payload = { deckHtml, answers: state.answers, activeSlideOrder: state.activeSlideOrder };
+    const project = await SaasyAuth.saveProject({ tool: SAASY_TOOL, name, payload, id: currentProjectId });
+    currentProjectId = project.id;
+    saveBtn.textContent = 'Saved ✓';
+  } catch (err) {
+    console.error('save project failed', err);
+    alert('Could not save project: ' + err.message);
+  } finally {
+    setTimeout(() => { saveBtn.disabled = false; saveBtn.textContent = originalText; }, 1600);
+  }
+}
+
+async function openMyProjects() {
+  if (!window.SaasyAuth) return;
+  const panel = document.getElementById('my-projects-panel');
+  if (!panel.classList.contains('hidden')) { closeMyProjects(); return; }
+  if (!SaasyAuth.isSignedIn()) {
+    try { await SaasyAuth.signIn(); syncAuthUI(); } catch (err) { return; }
+  }
+  panel.classList.remove('hidden');
+  const list = document.getElementById('my-projects-list');
+  list.innerHTML = '<div class="my-projects-loading">Loading…</div>';
+  try {
+    const projects = await SaasyAuth.listProjects({ tool: SAASY_TOOL });
+    if (!projects.length) {
+      list.innerHTML = '<div class="my-projects-empty">No saved projects yet.</div>';
+      return;
+    }
+    list.innerHTML = '';
+    projects.forEach((p) => {
+      const row = document.createElement('div');
+      row.className = 'my-projects-row';
+      row.innerHTML = `
+        <div>
+          <div class="my-projects-row-name">${escapeHtml(p.name)}</div>
+          <div class="my-projects-row-date">${new Date(p.updated_at).toLocaleDateString()}</div>
+        </div>
+        <div class="my-projects-row-actions">
+          <button data-action="load">Load</button>
+          <button data-action="delete">Delete</button>
+        </div>`;
+      row.querySelector('[data-action="load"]').addEventListener('click', () => loadProjectAndHydrate(p.id));
+      row.querySelector('[data-action="delete"]').addEventListener('click', () => deleteProjectFromList(p.id, row));
+      list.appendChild(row);
+    });
+  } catch (err) {
+    list.innerHTML = '<div class="my-projects-error">Failed to load projects.</div>';
+  }
+}
+
+function closeMyProjects() {
+  document.getElementById('my-projects-panel').classList.add('hidden');
+}
+
+async function deleteProjectFromList(id, row) {
+  if (!confirm('Delete this saved project?')) return;
+  try {
+    await SaasyAuth.deleteProject(id);
+    row.remove();
+    if (id === currentProjectId) currentProjectId = null;
+  } catch (err) {
+    alert('Could not delete project: ' + err.message);
+  }
+}
+
+async function loadProjectAndHydrate(id) {
+  try {
+    const project = await SaasyAuth.loadProject(id);
+    const parser = new DOMParser();
+    state.deckDoc = parser.parseFromString(project.payload.deckHtml, 'text/html');
+    state.answers = project.payload.answers || null;
+    state.activeSlideOrder = project.payload.activeSlideOrder || null;
+    currentProjectId = project.id;
+    enumerateSlides();
+    renderNav();
+    mountPreview();
+    clearScope();
+    document.getElementById('chat-log').innerHTML = '';
+    appendMessage('assistant', `Loaded saved project "${project.name}".`);
+    closeMyProjects();
+  } catch (err) {
+    alert('Could not load project: ' + err.message);
+  }
+}
+
+async function hydrateFromProjectId() {
+  if (!window.SaasyAuth) return;
+  const id = new URLSearchParams(window.location.search).get('projectId');
+  if (!id) return;
+  if (!SaasyAuth.isSignedIn()) {
+    try { await SaasyAuth.signIn(); syncAuthUI(); } catch (err) { return; }
+  }
+  await loadProjectAndHydrate(id);
 }
 
 // ------------------------------------------------------------------ Tracker
