@@ -1,19 +1,23 @@
 # ICP Session Handoff (3.0)
 
-Last updated: 2026-08-05, later evening (the 12-item UX-improvement backlog, including animated-slide editability part B, is pushed; Export HTML self-containment fix is committed locally, **not yet pushed**, awaiting explicit push instruction). **Read this first — do not re-read prior conversation summaries.** For a detailed history of completed work, see [PROGRESS.md](PROGRESS.md); this file is only current state + what's left.
+Last updated: 2026-08-08 (documentation reconciliation pass — no code changed this pass, only HANDOFF/PROGRESS catch-up). **Read this first — do not re-read prior conversation summaries.** For a detailed history of completed work, see [PROGRESS.md](PROGRESS.md); this file is only current state + what's left.
 
 ## Where we are
 
 - **Working directory**: `/Users/imansur/claude/interactive-customer-presentations 3.0` (fresh clone of `imansur-sf/interactive-customer-presentations`).
-- **Branch**: `main`.
-- **Pushed**: `11dd5ab` ("Fix silent failures, edit-mode leak, and error leakage; add a11y and progress feedback"), `0f9183c` ("Make AI-in-Action and Real-Time-Data animations edit-safe (part B)"), `f102421` (docs reconciliation) — the full 12-item backlog, reviewed and pushed by the user on return.
-- **Latest local commit**: `7b4136b` ("Make Export HTML self-contained; fix feedback-widget.js path") — inlines stylesheets/images/scripts into exported decks so they render standalone (not served from this app's origin), plus a one-line fix for a pre-existing `feedback-widget.js` 404 on every deck load. **Unpushed** — do not push without a fresh, explicit instruction. Working tree is otherwise clean (only the hook-managed `.claude/session-state.md` is untracked, intentionally left that way).
+- **Branch**: `main`. Fully in sync with `origin/main` — nothing pending push.
+- **Pushed**: `11dd5ab`, `0f9183c`, `f102421` (12-item UX backlog), `7b4136b` (Export HTML self-containment — this got pushed a session after the note below was originally written; see `0a3709a`), `0a3709a`/`f102421` (docs reconciliation), `2dbd75b` (preview-vs-final-deck clarification in interview intro), `0c6e17b` (Google Analytics 4 tag), **`8d71d31`** (shared SaaSy Solutions sign-in + Save Project support, plus the "Export for Cloudy" button — see below), **`f81dd80`** (fix invisible white button text in the My Projects panel). All pushed; working tree clean (only the hook-managed `.claude/session-state.md` is untracked, intentionally left that way).
+- **Cross-property save/sign-in initiative is now fully complete.** ICP is one of four properties — alongside the SaaSy Solutions catalog, Unified Profile Generator (UPG), and Loyalty Portal Generator (LPG) — sharing a save/sign-in system backed by the standalone `saasy-accounts` Heroku app. Every phase of the original plan, including the "Export for Cloudy" assist buttons, is implemented, committed, and pushed across all five repos. ICP's piece of it:
+  - Sign-in widget (`<script src=".../saasy-auth.js">`, served by `saasy-accounts`): Salesforce-email OTP, no passwords.
+  - "My Projects" panel in `app.js`/`index.html`: save/list/load/delete decks against the shared backend; `?projectId=` on page load auto-hydrates a deck.
+  - "Export for Cloudy" button (`#btn-export-cloudy`): downloads the self-contained deck HTML, opens `sfdc.co/cloudy`, and posts an in-chat reminder to sign in via SSO and drag the file in — no automated push exists (Cloudy has no push API yet).
+  - See PROGRESS.md's new "2026-08-07/08" entry for detail, and `saasy-accounts`' own `HANDOFF.md` (new — sibling repo) for the shared-backend side of this.
 - The `2.0` folder and the original `/Users/imansur/claude/interactive-customer-presentations` folder are both retired. `3.0` is the sole working copy. (The non-3.0 folder's content is deleted; an empty shell containing only `.claude`/`.git` remains on disk at that path — the sandbox refuses to let an agent remove its own control/git directories, even from a different session's working directory. Harmless; remove manually outside a Claude session if you want it fully gone.)
 - **Deployment**: Heroku is the actual UI/runtime layer for this app (and this app's family of projects). GitHub Pages is NOT used for ICP — it's only relevant to a separate, unrelated "Sassy Solutions website" project. Don't conflate the two.
 - Manual click-to-edit-text fallback (contenteditable leaf text, bypasses the LLM entirely), icon/image replacement (click-to-upload + chat-URL), slide reordering (drag-to-reorder nav), the Hero KPI countUp-cache fix, and the AI-in-Action/Real-Time-Data desync fix (part A) are all implemented, live-verified, and pushed from prior sessions. See PROGRESS.md for full detail on each.
 - The full UX-improvement backlog (12 items) is **implemented, committed, and pushed** — see PROGRESS.md's "2026-08-05 (evening)" entry for the full breakdown. This includes animated-slide editability **part B**, which was implemented without the design check-in a prior handoff called for, since the user was unavailable — see that same PROGRESS.md entry for the rationale.
-- **Export HTML self-containment fix** (see PROGRESS.md's "2026-08-05 (later evening)" entry) is implemented, live-verified, and committed (`7b4136b`) but **not yet pushed** — awaiting explicit push instruction.
-- **No open backlog items remain** beyond pushing `7b4136b`. Next session's job is likely just to watch for regressions and pick up whatever the user flags after review.
+- **Export HTML self-containment fix** (see PROGRESS.md's "2026-08-05 (later evening)" entry) is implemented, live-verified, committed (`7b4136b`), and **now pushed** — this was the one open item from the prior handoff and it's resolved.
+- **No open backlog items remain anywhere in the cross-property initiative.** Next session's job is likely just to watch for regressions and pick up whatever the user flags after review — especially around the S5/S6 animated-slide changes and the new My-Projects/SaasyAuth panel, since neither shipped with a design check-in.
 
 ## Resolved findings (2026-08-04)
 
@@ -59,13 +63,13 @@ Local backend-capable dev server: `node server.js` with `GEMINI_API_KEY` set (se
 
 1. **Testing-methodology note**: `preview_click` has intermittently reported success on a target with zero observable effect in past sessions (suspected coordinate/overlap issue) — reconfirmed again this session on `#scope-chip-edit`. This is a caution about the Browser preview MCP tool itself, not an app-code bug — no specific reproducible element was ever pinned down. **Confirmed workaround**: `preview_eval` with `document.getElementById(...).click()` — validated working every time it's been tried.
 
-2. **`7b4136b` (Export HTML fix) is pending push.** Implemented and live-verified (see PROGRESS.md's "2026-08-05 (later evening)" entry) but not pushed — ask for explicit confirmation before pushing, per standing directive #3 below.
+2. **Reminder for the user, not a code item**: the old/leaked Resend API key should still be revoked at https://resend.com/api-keys — carried over from an earlier session, unrelated to this repo but noting it here since it hasn't been confirmed done.
 
 ## What to do next session
 
-1. **Confirm whether `7b4136b` should be pushed** — that's this session's first job if it hasn't been addressed yet (ask, don't assume).
-2. No known open backlog items. If the user raises new findings after reviewing this session's work (especially around the S5/S6 animated-slide changes, since those shipped without a design check-in), triage those first.
-3. If a new bug report comes in with reason string `css_leak_blocked` or `slide_element_protected`, re-check `llm.js`'s guard chain first since those are the two guards with known false-positive history.
+1. No known open backlog items anywhere in the cross-property initiative (ICP, UPG, LPG, the SaaSy Solutions catalog, and `saasy-accounts` are all fully implemented, committed, and pushed). If the user raises new findings after reviewing this work — especially around the S5/S6 animated-slide changes or the new My-Projects/SaasyAuth panel, since neither shipped with a design check-in — triage those first.
+2. If a new bug report comes in with reason string `css_leak_blocked` or `slide_element_protected`, re-check `llm.js`'s guard chain first since those are the two guards with known false-positive history.
+3. For the shared-backend side of any My-Projects/SaasyAuth issue, see `saasy-accounts/HANDOFF.md` (sibling repo) — it owns the OTP/JWT/Postgres logic that ICP's panel calls into.
 
 ## Key files
 

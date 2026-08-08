@@ -4,9 +4,26 @@ Chronological record of completed work on the `3.0` app (Heroku + Gemini backend
 
 ---
 
+## 2026-08-05 through 2026-08-08 — Shared SaaSy Solutions sign-in, My Projects, and Cloudy export
+
+ICP's piece of a cross-property initiative that also touched the SaaSy Solutions catalog, Unified Profile Generator (UPG), Loyalty Portal Generator (LPG), and a new standalone backend, `saasy-accounts` (see that repo's own `HANDOFF.md`). Four commits, in order:
+
+1. **`2dbd75b`** (2026-08-05) — "Add preview-vs-final-deck note to interview intro message." One-line `app.js` change clarifying that slide previews shown during the interview are partial; a complete, up-to-date deck only appears after finishing the interview and clicking Generate Deck.
+2. **`0c6e17b`** (2026-08-06) — "Add Google Analytics 4 tag (G-LYCN6X58Y9)." Ten-line `index.html` addition, unrelated to the sign-in work but landed in the same window.
+3. **`8d71d31`** (2026-08-07) — "Add shared SaaSy Solutions sign-in and Save Project support." The main integration commit (`app.js` +174, `index.html` +100):
+   - Adds the `saasy-auth.js` widget script tag (served by `saasy-accounts`) for Salesforce-email OTP sign-in (no passwords).
+   - Adds a "My Projects" panel: save/list/load/delete decks against the shared backend, keyed by the signed-in email.
+   - Adds `?projectId=` URL support — on page load, if present, auto-fetches and hydrates that project's deck state. This is what lets the SaaSy Solutions catalog's "Reopen" links jump straight into a specific saved deck.
+   - Also introduces the **"Export for Cloudy" button** (`#btn-export-cloudy`) in the same commit — folded into this integration rather than given its own commit, since it reuses the same export-serialization path. Downloads the self-contained deck HTML, opens `sfdc.co/cloudy` in a new tab, and posts a chat reminder to sign in via SSO and drag the file in. No automated push — Cloudy has no push API today (confirmed via Cloudy's own FAQ during planning).
+4. **`f81dd80`** (2026-08-08) — "Fix invisible white button text in My Projects panel." `.my-projects-panel-header button` and `.my-projects-row-actions button` were tying in CSS specificity with `.topbar button`, losing the cascade and rendering near-white text on a light background. Fixed by scoping selectors under `.my-projects-panel` to win outright (`index.html`, +2/-2).
+
+All four commits pushed; verified working via `preview_*` tools (sign-in, save, reload, "My Projects" list, load-back, and the Cloudy button's download + new-tab behavior).
+
+---
+
 ## 2026-08-05 (later evening) — Export HTML self-containment fix + feedback-widget.js path fix
 
-Commit `7b4136b` (`app.js`), **not yet pushed**. Triggered by the user noticing the exported deck rendered as unstyled plain text when opened outside this app's origin.
+Commit `7b4136b` (`app.js`), pushed. Triggered by the user noticing the exported deck rendered as unstyled plain text when opened outside this app's origin.
 
 **Root cause**: Export HTML built its output from `state.deckDoc.documentElement.outerHTML` verbatim — a `<base href>` tag plus relative `<link>`/`<img>`/`<script>` tags that only resolve while served from this app's own origin (`loadReferenceDeck()`'s `<base>`-relative design, intentional for the *live* app, but never adapted for the *exported* file). Opening the exported HTML from disk, or from any other origin, broke every stylesheet, several images, and scripts.
 
